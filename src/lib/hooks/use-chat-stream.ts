@@ -4,6 +4,7 @@ import {
   readMessages,
   setGeneratedSessionTitle,
   setSessionTitleFromMessage,
+  subscribeMessages,
   touchSession,
   writeMessages,
 } from "~/lib/chat/sessions-store";
@@ -13,6 +14,7 @@ import {
 // frames into the same ChatMessage shape.
 export type { ChatStreamEvent } from "~/lib/chat/sse-reader";
 
+import { appendNewMessagesById } from "~/lib/chat/messages";
 import { readChatStream } from "~/lib/chat/sse-reader";
 import {
   applyToolCall,
@@ -191,6 +193,22 @@ export function useChatStream(sessionId: string, skills: Skill[] = []): UseChatS
     titledRef.current = loaded.length > 0;
     // Re-read on sessionId change is handled by the keyed remount at the call
     // site (ChatSurface key={sessionId}); this effect therefore runs per-mount.
+  }, [sessionId]);
+
+  // Live-merge turns appended by the OTHER writer — the scheduled-task
+  // executor (run-instruction), which fires a real /api/chat turn into this
+  // session's transcript when a task is due. Without this, a scheduled fire
+  // that lands while the user is viewing the task's home chat would be
+  // invisible until a remount (the load effect above only runs once). This is
+  // the no-backend analog of the reference's useSessionStream SSE
+  // subscription. Self-writes (this hook's own persist) merge to a no-op:
+  // appendNewMessagesById returns the same reference when every incoming id is
+  // already present, so React bails out and there's no re-render storm.
+  useEffect(() => {
+    return subscribeMessages(sessionId, () => {
+      const incoming = readMessages(sessionId);
+      setMessages((current) => appendNewMessagesById(current, incoming));
+    });
   }, [sessionId]);
 
   // First-turn titling: once the first user+assistant exchange completes (the
@@ -548,5 +566,4 @@ async function readErrorMessage(response: Response): Promise<string> {
   return `Chat request failed with status ${response.status}.`;
 }
 
-/** Parse our SSE protocol from a byte stream, invoking onEvent per frame. */
 // (readChatStream + the per-frame parsers live in ~/lib/chat/sse-reader.)

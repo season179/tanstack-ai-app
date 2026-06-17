@@ -44,6 +44,16 @@ const listeners = new Set<Listener>();
 let cache: SessionSummary[] | null = null;
 let crossTabWired = false;
 
+/**
+ * Per-session message listeners + cached snapshots. Two async writers feed a
+ * session's transcript — the interactive chat hook (useChatStream) and the
+ * scheduled-task executor (run-instruction) — and the chat surface subscribes
+ * so a scheduled fire into the session the user is currently viewing lands
+ * live without a remount (parity with the reference's useSessionStream).
+ */
+const messageListeners = new Map<string, Set<Listener>>();
+const messageCache = new Map<string, ChatMessage[]>();
+
 function isClient(): boolean {
   return typeof window !== "undefined";
 }
@@ -119,6 +129,21 @@ function notify(): void {
   }
 }
 
+/**
+ * Notify the per-session message subscribers for one session. Called by
+ * writeMessages after the localStorage write lands. Invalidates the cached
+ * snapshot first so a re-read picks up the new content.
+ */
+function notifyMessages(sessionId: string): void {
+  messageCache.delete(sessionId);
+  const set = messageListeners.get(sessionId);
+  if (set) {
+    for (const listener of set) {
+      listener();
+    }
+  }
+}
+
 /** Wire the cross-tab `storage` listener exactly once per tab. */
 function ensureCrossTab(): void {
   if (!isClient() || crossTabWired) {
@@ -129,6 +154,14 @@ function ensureCrossTab(): void {
     if (event.key === null || event.key === SESSIONS_KEY) {
       cache = null;
       notify();
+      return;
+    }
+    // A per-session messages key changed in another tab: notify that
+    // session's subscribers so a cross-tab scheduled fire (or a chat started
+    // in another tab) merges into a viewed transcript here too.
+    if (event.key.startsWith(MESSAGES_PREFIX)) {
+      const sessionId = event.key.slice(MESSAGES_PREFIX.length);
+      notifyMessages(sessionId);
     }
   });
 }
@@ -160,6 +193,50 @@ export function subscribeSessions(listener: Listener): () => void {
   return () => {
     listeners.delete(listener);
   };
+}
+
+/**
+ * Subscribe to writes of one session's messages. The chat surface uses this to
+ * merge turns appended by the OTHER writer (the scheduled-task executor) into
+ * the transcript it's already rendering — the no-backend analog of the
+ * reference's useSessionStream SSE subscription. Referentially-stable snapshot
+ * via messageCache so useSyncExternalStore (or a plain useEffect subscribe)
+ * doesn't loop.
+ */
+export function subscribeMessages(sessionId: string, listener: Listener): () => void {
+  ensureCrossTab();
+  let set = messageListeners.get(sessionId);
+  if (!set) {
+    set = new Set();
+    messageListeners.set(sessionId, set);
+  }
+  set.add(listener);
+  return () => {
+    const existing = messageListeners.get(sessionId);
+    if (!existing) {
+      return;
+    }
+    existing.delete(listener);
+    if (existing.size === 0) {
+      messageListeners.delete(sessionId);
+      // Free the cached snapshot once nobody is listening; a future subscriber
+      // re-reads lazily.
+      messageCache.delete(sessionId);
+    }
+  };
+}
+
+/**
+ * Cached, referentially-stable per-session message snapshot for
+ * useSyncExternalStore. Re-reads lazily after a notify (notifyMessages
+ * invalidates the cache) so the snapshot reference only changes when the
+ * underlying transcript actually changes.
+ */
+export function getMessagesSnapshot(sessionId: string): ChatMessage[] {
+  if (!messageCache.has(sessionId)) {
+    messageCache.set(sessionId, readMessages(sessionId));
+  }
+  return messageCache.get(sessionId) ?? [];
 }
 
 // --- Public mutators -------------------------------------------------------
@@ -296,4 +373,9 @@ export function writeMessages(id: string, messages: ChatMessage[]): void {
   } catch {
     // Best effort.
   }
+  // Notify per-session subscribers so the chat surface (if mounted on this
+  // session) can merge a turn appended by the OTHER writer — most importantly
+  // the scheduled-task executor firing into the transcript the user is viewing.
+  // Interactive self-writes merge to a no-op (same ids) so this is cheap.
+  notifyMessages(id);
 }
