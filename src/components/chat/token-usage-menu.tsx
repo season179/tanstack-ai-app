@@ -6,6 +6,7 @@ import {
   isUsageEmpty,
   type TokenUsageBreakdown,
   type TokenUsageBreakdownCategoryId,
+  type ToolSearchTraceEvent,
   type TurnTokenUsage,
 } from "~/lib/chat/tool-events";
 
@@ -155,8 +156,74 @@ function ToolSearchPanel({ metadata }: { metadata: ChatUsageSummary["latestToolS
         <span>{metadata.callCount} calls</span>
         <span>{metadata.deferredToolCount} deferred</span>
       </div>
+
+      {metadata.trace && metadata.trace.length > 0 ? (
+        <ToolSearchTrace trace={metadata.trace} />
+      ) : null}
     </div>
   );
+}
+
+/**
+ * Collapsible list of the latest 5 bridge trace events (search/describe/call),
+ * so the user can audit exactly what the deferred tool loop did this turn
+ * without expanding the inline tool trace. Ported from the reference.
+ */
+function ToolSearchTrace({ trace }: { trace: ToolSearchTraceEvent[] }) {
+  const visibleTrace = trace.slice(-5);
+
+  return (
+    <details className="mt-3 border-t border-border/70 pt-2">
+      <summary className="cursor-pointer list-none text-[11px] font-semibold text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/30 [&::-webkit-details-marker]:hidden">
+        Search trace
+        <span className="ml-2 font-normal text-muted-foreground">
+          latest {visibleTrace.length} of {trace.length}
+        </span>
+      </summary>
+      <div className="mt-2 space-y-2">
+        {visibleTrace.map((event, index) => (
+          <div
+            className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2 text-[11px]"
+            // Read-only, append-only slice of stateless rows; events carry no id
+            // and identical (kind, detail) pairs are legitimate (e.g. the same
+            // tool invoked twice), so list position is the only stable key.
+            // biome-ignore lint/suspicious/noArrayIndexKey: see comment above
+            key={`${index}-${event.kind}-${getToolSearchEventDetail(event)}`}
+          >
+            <span className="font-medium text-foreground">{getToolSearchEventLabel(event)}</span>
+            <span className="min-w-0 text-muted-foreground">{getToolSearchEventDetail(event)}</span>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function getToolSearchEventLabel(event: ToolSearchTraceEvent): string {
+  switch (event.kind) {
+    case "search":
+      return "Search";
+    case "describe":
+      return "Describe";
+    case "call":
+      return "Call";
+  }
+}
+
+function getToolSearchEventDetail(event: ToolSearchTraceEvent): string {
+  switch (event.kind) {
+    case "search": {
+      const names = event.matches
+        .slice(0, 3)
+        .map((match) => match.name)
+        .join(", ");
+      return `"${event.query}" -> ${names || "no matches"}`;
+    }
+    case "describe":
+      return event.found ? `${event.name} schema loaded` : `${event.name} not found`;
+    case "call":
+      return event.found ? `${event.name} invoked` : `${event.name} not found`;
+  }
 }
 
 /**

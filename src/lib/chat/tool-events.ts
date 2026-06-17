@@ -30,9 +30,23 @@ export type ToolStep = {
 
 /**
  * The deferred-tool-search summary for one assistant turn. A faithful subset
- * of the server's ToolSearchMetadata; `trace` is dropped (the steps already
- * render it) and unknown fields are tolerated so the wire shape can grow.
+ * of the server's ToolSearchMetadata; the `trace` events are also mirrored so
+ * the header's TokenUsageMenu can render a "Search trace" of the latest
+ * search/describe/call activity (parity with the reference). Unknown fields are
+ * tolerated so the wire shape can grow.
  */
+export type ToolSearchTraceMatch = {
+  name: string;
+  service?: string;
+  title?: string;
+};
+
+/** One bridge trace event (search/describe/call). Mirrors the server union. */
+export type ToolSearchTraceEvent =
+  | { kind: "search"; query: string; matches: ToolSearchTraceMatch[] }
+  | { kind: "describe"; name: string; found: boolean; title?: string; service?: string }
+  | { kind: "call"; name: string; found: boolean; title?: string; service?: string };
+
 export type ToolSearchSummary = {
   mode: "search" | "all";
   availableToolCount: number;
@@ -46,6 +60,7 @@ export type ToolSearchSummary = {
   searchCount: number;
   describeCount: number;
   callCount: number;
+  trace?: ToolSearchTraceEvent[];
 };
 
 /**

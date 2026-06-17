@@ -284,6 +284,11 @@ export function parseMetadataFrame(raw: unknown): MetadataFrame | null {
     return null;
   }
   const num = (key: string): number => (typeof m[key] === "number" ? (m[key] as number) : 0);
+  const trace = Array.isArray(m.trace)
+    ? m.trace
+        .map(parseTraceEvent)
+        .filter((event): event is NonNullable<typeof event> => event !== null)
+    : [];
   return {
     type: "metadata",
     metadata: {
@@ -299,6 +304,56 @@ export function parseMetadataFrame(raw: unknown): MetadataFrame | null {
       searchCount: num("searchCount"),
       describeCount: num("describeCount"),
       callCount: num("callCount"),
+      trace: trace.length > 0 ? trace : undefined,
     },
   };
+}
+
+/**
+ * Validate a single bridge trace event off the wire. Returns null for anything
+ * that isn't a {kind: search|describe|call} object with the fields the UI reads;
+ * extra fields are dropped so the persisted shape stays the client's own.
+ */
+function parseTraceEvent(
+  raw: unknown,
+): import("~/lib/chat/tool-events").ToolSearchTraceEvent | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const e = raw as Record<string, unknown>;
+  const str = (key: string): string | undefined =>
+    typeof e[key] === "string" ? (e[key] as string) : undefined;
+  const name = str("name");
+  const title = str("title");
+  const service = str("service");
+
+  if (e.kind === "search") {
+    const query = str("query") ?? "";
+    const matches = Array.isArray(e.matches)
+      ? e.matches
+          .map(parseTraceEventMatch)
+          .filter((match): match is NonNullable<typeof match> => match !== null)
+      : [];
+    return { kind: "search", query, matches };
+  }
+  if ((e.kind === "describe" || e.kind === "call") && typeof name === "string") {
+    const found = e.found === true;
+    return { kind: e.kind, name, found, title, service };
+  }
+  return null;
+}
+
+function parseTraceEventMatch(
+  raw: unknown,
+): import("~/lib/chat/tool-events").ToolSearchTraceMatch | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const x = raw as Record<string, unknown>;
+  if (typeof x.name !== "string" || x.name.length === 0) {
+    return null;
+  }
+  const str = (key: string): string | undefined =>
+    typeof x[key] === "string" ? (x[key] as string) : undefined;
+  return { name: x.name, service: str("service"), title: str("title") };
 }
