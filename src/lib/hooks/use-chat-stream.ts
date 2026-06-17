@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  readMessages,
+  setSessionTitleFromMessage,
+  touchSession,
+  writeMessages,
+} from "~/lib/chat/sessions-store";
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -13,8 +20,6 @@ export type ChatStreamEvent = { type: "text"; text: string } | { type: "error"; 
 type SendOptions = {
   /** The model id the composer's picker chose, or null for the server default. */
   model?: string | null;
-  /** Optional stable chat id (sent for parity; not persisted this iteration). */
-  id?: string;
 };
 
 export type UseChatStream = {
@@ -23,7 +28,6 @@ export type UseChatStream = {
   error: string | null;
   send: (text: string, options?: SendOptions) => void;
   stop: () => void;
-  reset: () => void;
 };
 
 function makeId(): string {
@@ -33,33 +37,61 @@ function makeId(): string {
 }
 
 /**
- * Minimal streaming chat client — no AI SDK. Owns the message list, streaming
- * status, and an AbortController so the composer can cancel a run. Reads our
- * server's SSE protocol directly (data: {"type":"text","text":"..."} and a
- * terminal data: [DONE]).
+ * Streaming chat client bound to a single persisted session. Owns the message
+ * list, streaming status, and an AbortController so the composer can cancel a
+ * run. Reads the server's SSE protocol directly (data: {"type":"text","text":
+ * "..."} and a terminal data: [DONE]).
+ *
+ * Turns are mirrored to localStorage (under the session id) at send-time and on
+ * stream completion, plus on unmount, so a reload mid- or post-conversation
+ * restores the transcript. The empty assistant placeholder is never persisted.
  */
-export function useChatStream(): UseChatStream {
+export function useChatStream(sessionId: string): UseChatStream {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<ChatStatus>("ready");
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Keep the latest messages in a ref so the unmount/abort persistence path
+  // always sees the final transcript without depending on the state closure.
+  const messagesRef = useRef<ChatMessage[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // Load any persisted transcript for this session once on mount.
+  useEffect(() => {
+    setMessages(readMessages(sessionId));
+    // Re-read on sessionId change is handled by the keyed remount at the call
+    // site (ChatSurface key={sessionId}); this effect therefore runs per-mount.
+  }, [sessionId]);
+
+  /** Persist a snapshot, dropping any trailing empty assistant placeholder. */
+  const persist = useCallback(
+    (snapshot: ChatMessage[]) => {
+      const stable = snapshot.filter(
+        (message) => !(message.role === "assistant" && message.content.length === 0),
+      );
+      writeMessages(sessionId, stable);
+    },
+    [sessionId],
+  );
+
+  // On unmount, flush whatever transcript we have so a tab close mid-stream
+  // still keeps the user turn and any partial assistant reply.
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      persist(messagesRef.current);
+    };
+  }, [persist]);
+
   const stop = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
     setStatus("ready");
-  }, []);
-
-  const reset = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    setMessages([]);
-    setError(null);
-    setStatus("ready");
-  }, []);
-
-  // Release the in-flight request on unmount so a navigating tab doesn't leak.
-  useEffect(() => () => abortRef.current?.abort(), []);
+    persist(messagesRef.current);
+  }, [persist]);
 
   const send = useCallback(
     (text: string, options: SendOptions = {}) => {
@@ -81,6 +113,12 @@ export function useChatStream(): UseChatStream {
       setMessages([...outbound, assistantMessage]);
       setStatus("submitted");
 
+      // Persist the user turn immediately and float the chat to the top of the
+      // sidebar; auto-title from this first user message if still untitled.
+      persist(outbound);
+      touchSession(sessionId);
+      setSessionTitleFromMessage(sessionId, trimmed);
+
       const controller = new AbortController();
       abortRef.current = controller;
 
@@ -91,7 +129,7 @@ export function useChatStream(): UseChatStream {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              id: options.id,
+              id: sessionId,
               model: options.model ?? undefined,
               messages: outbound.map(({ role, content }) => ({ role, content })),
             }),
@@ -139,20 +177,23 @@ export function useChatStream(): UseChatStream {
           return;
         }
 
-        // If the assistant turn stayed empty (no content tokens landed), drop the
-        // placeholder so the transcript doesn't show a blank bubble.
-        setMessages((current) =>
-          current.filter(
+        // Drop the placeholder if the assistant turn stayed empty (no tokens
+        // landed), then persist the final transcript + float the chat.
+        setMessages((current) => {
+          const finalized = current.filter(
             (message) => !(message.id === assistantId && message.content.length === 0),
-          ),
-        );
+          );
+          persist(finalized);
+          touchSession(sessionId);
+          return finalized;
+        });
         setStatus("ready");
       })();
     },
-    [messages, status],
+    [messages, status, persist, sessionId],
   );
 
-  return { messages, status, error, send, stop, reset };
+  return { messages, status, error, send, stop };
 }
 
 async function readErrorMessage(response: Response): Promise<string> {

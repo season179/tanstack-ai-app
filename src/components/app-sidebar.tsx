@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   BookOpen,
   CalendarClock,
@@ -6,10 +6,12 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  Trash2,
 } from "lucide-react";
 
 import { isMobileViewport, useAppShell } from "~/components/app-shell-context";
 import { Button } from "~/components/ui/button";
+import { useChatSessions } from "~/lib/hooks/use-chat-sessions";
 import { cn } from "~/lib/utils";
 
 const NAV_ITEMS = [
@@ -18,9 +20,57 @@ const NAV_ITEMS = [
   { to: "/skills", icon: BookOpen, label: "Skills" },
 ] as const;
 
+/** `/chat/<id>` → <id>; everything else → null (no active session highlight). */
+function parseActiveSessionId(pathname: string): string | null {
+  const match = pathname.match(/^\/chat\/([^/]+)$/);
+  return match?.[1] ?? null;
+}
+
+function formatRelative(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) {
+    return "";
+  }
+  const minutes = Math.round((Date.now() - then) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(then).toLocaleDateString();
+}
+
 export function AppSidebar() {
   const { sidebarOpen: open, toggleSidebar, closeSidebar } = useAppShell();
   const location = useRouterState({ select: (state) => state.location });
+  const navigate = useNavigate();
+  const { sessions, createSession, removeSession } = useChatSessions();
+
+  const activeSessionId = parseActiveSessionId(location.pathname);
+
+  function goToSession(id: string) {
+    void navigate({ to: "/chat/$sessionId", params: { sessionId: id } });
+    if (isMobileViewport()) {
+      closeSidebar();
+    }
+  }
+
+  function handleNewChat() {
+    const id = createSession();
+    goToSession(id);
+  }
+
+  function handleDeleteSession(id: string, title: string) {
+    if (!window.confirm(`Delete '${title}'? This removes it from this browser.`)) {
+      return;
+    }
+    removeSession(id);
+    if (id === activeSessionId) {
+      // Bounce to "/", which redirects to the next-most-recent (or a fresh) chat.
+      void navigate({ to: "/", replace: true });
+    }
+  }
 
   return (
     <>
@@ -55,7 +105,10 @@ export function AppSidebar() {
           <nav aria-label="Primary" className="flex flex-col gap-0.5 px-2">
             {NAV_ITEMS.map((item) => {
               const pathname = location.pathname;
-              const isActive = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
+              const isActive =
+                item.to === "/"
+                  ? pathname === "/" || pathname.startsWith("/chat")
+                  : pathname.startsWith(item.to);
               const Icon = item.icon;
 
               return (
@@ -91,7 +144,7 @@ export function AppSidebar() {
           <div className="px-2 pb-2">
             <Button
               className={open ? "w-full justify-start gap-2" : "mx-auto size-9"}
-              disabled
+              onClick={handleNewChat}
               size={open ? "sm" : "icon"}
               title={open ? undefined : "New chat"}
               type="button"
@@ -104,9 +157,69 @@ export function AppSidebar() {
 
           {open ? (
             <nav aria-label="Chats" className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
-              <p className="px-2 py-3 text-xs text-muted-foreground">
-                No chats yet. Streaming chat lands next.
-              </p>
+              {sessions.length === 0 ? (
+                <p className="px-2 py-3 text-xs text-muted-foreground">
+                  No chats yet. Click <span className="font-medium">New chat</span> to start.
+                </p>
+              ) : (
+                <ul className="space-y-0.5">
+                  {sessions.map((session) => {
+                    const isActive = session.id === activeSessionId;
+                    return (
+                      <li key={session.id}>
+                        <div
+                          aria-current={isActive ? "true" : undefined}
+                          className={cn(
+                            "group relative flex items-center rounded-md pr-1 outline-none transition-colors focus-within:ring-2 focus-within:ring-primary/30",
+                            isActive ? "bg-muted" : "hover:bg-muted/60",
+                          )}
+                        >
+                          <button
+                            className={cn(
+                              "min-w-0 flex-1 py-2 pl-2.5 pr-7 text-left",
+                              isActive ? "text-foreground" : "text-muted-foreground",
+                            )}
+                            onClick={() => goToSession(session.id)}
+                            title={session.title}
+                            type="button"
+                          >
+                            <span className="flex items-center gap-2">
+                              <MessageSquare
+                                aria-hidden="true"
+                                className={cn("size-3.5 shrink-0", isActive && "text-primary")}
+                              />
+                              <span
+                                className={cn(
+                                  "truncate text-sm",
+                                  isActive && "font-medium text-foreground",
+                                )}
+                              >
+                                {session.title}
+                              </span>
+                            </span>
+                            {session.updatedAt ? (
+                              <span className="mt-0.5 block pl-5.5 text-[11px] text-muted-foreground/80">
+                                {formatRelative(session.updatedAt)}
+                              </span>
+                            ) : null}
+                          </button>
+                          <Button
+                            aria-label={`Delete ${session.title}`}
+                            className="size-7 shrink-0 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+                            onClick={() => handleDeleteSession(session.id, session.title)}
+                            size="icon"
+                            title="Delete chat"
+                            type="button"
+                            variant="ghost"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </nav>
           ) : null}
         </aside>

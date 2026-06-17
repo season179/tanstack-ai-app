@@ -12,8 +12,8 @@ import { cn } from "~/lib/utils";
 // uses (max-w-7xl + px-4/8/10).
 const SHELL_COLUMN = "mx-auto w-full max-w-7xl px-4 sm:px-8 lg:px-10";
 
-export function ChatSurface() {
-  const { messages, status, error, send, stop } = useChatStream();
+export function ChatSurface({ sessionId }: { sessionId: string }) {
+  const { messages, status, error, send, stop } = useChatStream(sessionId);
   const { models, defaultModel, selectedModel, loading, setSelectedModel, ensureLoaded } =
     useModels();
 
