@@ -30,10 +30,15 @@ const SHELL_COLUMN = "mx-auto w-full max-w-7xl px-4 sm:px-8 lg:px-10";
 const SCROLL_PIN_THRESHOLD = 80;
 
 export function ChatSurface({ sessionId }: { sessionId: string }) {
-  const { messages, status, error, send, stop, regenerate } = useChatStream(sessionId);
+  // Skills are read BEFORE useChatStream so the hook can ship the enabled-skills
+  // snapshot with each chat request (the server exposes skill_search /
+  // skill_get_content as agent tools over that snapshot). Ordering matters:
+  // hooks must be called unconditionally and in the same order every render,
+  // and useChatStream's body references `skills`.
+  const { skills } = useSkills();
+  const { messages, status, error, send, stop, regenerate } = useChatStream(sessionId, skills);
   const { models, defaultModel, selectedModel, loading, setSelectedModel, ensureLoaded } =
     useModels();
-  const { skills } = useSkills();
 
   const [input, setInput] = useState("");
   const contentRef = useRef<HTMLDivElement>(null);

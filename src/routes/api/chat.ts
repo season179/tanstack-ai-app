@@ -11,6 +11,13 @@ import {
   resolveChatModel,
   streamChatCompletion,
 } from "~/lib/server/openrouter";
+import {
+  buildSkillCatalogBlock,
+  buildSkillTools,
+  executeSkillTool,
+  SKILLS_PROMPT,
+  type SkillCatalogSnapshot,
+} from "~/lib/server/skills/skill-tools";
 import { pumpChatCompletion, SSE_DONE, sseData } from "~/lib/server/sse";
 import { mockToolCount } from "~/lib/server/tools/mock-tools";
 import {
@@ -28,16 +35,21 @@ import { isUuid } from "~/lib/utils";
  * verification contract — `x-openrouter-model`, `x-mock-tools`, `x-total-tools`,
  * and `x-tool-exposure-mode` — so the active tool-routing configuration is
  * inspectable on every chat response (curl -i or the Network tab) without
- * waiting for the stream to complete.
+ * waiting for the stream to complete. `extrasCount` adds skill (and any future
+ * non-bridge) tools to `x-total-tools` so it reflects what the model sees.
  */
-function chatStreamHeaders(model: string, exposureMode: ToolExposureMode): HeadersInit {
+function chatStreamHeaders(
+  model: string,
+  exposureMode: ToolExposureMode,
+  extrasCount = 0,
+): HeadersInit {
   return {
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
     "x-openrouter-model": model,
     "x-mock-tools": String(mockToolCount),
-    "x-total-tools": String(sentToolCountForMode(exposureMode)),
+    "x-total-tools": String(sentToolCountForMode(exposureMode, extrasCount)),
     "x-tool-exposure-mode": exposureMode,
   };
 }
@@ -61,9 +73,78 @@ type ChatRequestBody = {
   id?: unknown;
   messages?: unknown;
   model?: unknown;
+  skills?: unknown;
 };
 
 type IncomingMessage = { role?: unknown; content?: unknown };
+
+type IncomingSkillReference = {
+  id?: unknown;
+  name?: unknown;
+  description?: unknown;
+  body?: unknown;
+};
+
+type IncomingSkill = {
+  id?: unknown;
+  name?: unknown;
+  description?: unknown;
+  body?: unknown;
+  references?: unknown;
+};
+
+/**
+ * Validate the client's per-request skills snapshot. Fails soft — any
+ * malformed row is dropped, never the whole request — so a buggy client
+ * payload can't 400 the chat. The snapshot is already pre-filtered to enabled
+ * skills by the client, but we re-check `body` since callers downstream assume
+ * a non-empty instruction payload.
+ */
+function toSkillSnapshot(skills: unknown): SkillCatalogSnapshot[] {
+  if (!Array.isArray(skills)) {
+    return [];
+  }
+  const out: SkillCatalogSnapshot[] = [];
+  for (const raw of skills as IncomingSkill[]) {
+    if (raw == null || typeof raw !== "object") {
+      continue;
+    }
+    if (
+      typeof raw.id !== "string" ||
+      typeof raw.name !== "string" ||
+      typeof raw.description !== "string" ||
+      typeof raw.body !== "string"
+    ) {
+      continue;
+    }
+    const references = Array.isArray(raw.references) ? raw.references : [];
+    const validReferences = references
+      .map((reference) => reference as IncomingSkillReference)
+      .filter(
+        (reference) =>
+          reference &&
+          typeof reference === "object" &&
+          typeof reference.id === "string" &&
+          typeof reference.name === "string" &&
+          typeof reference.description === "string" &&
+          typeof reference.body === "string",
+      )
+      .map((reference) => ({
+        body: reference.body as string,
+        description: reference.description as string,
+        id: reference.id as string,
+        name: reference.name as string,
+      }));
+    out.push({
+      body: raw.body,
+      description: raw.description,
+      id: raw.id,
+      name: raw.name,
+      references: validReferences,
+    });
+  }
+  return out;
+}
 
 function toChatMessages(messages: unknown): ChatMessage[] | null {
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -139,19 +220,53 @@ async function handleChat(request: Request): Promise<Response> {
     fallback: defaultModel,
   });
 
-  const runMessages: ChatMessage[] = [{ role: "system", content: SYSTEM_PROMPT }, ...messages];
+  // The client sends its current skills catalog snapshot (enabled skills from
+  // localStorage) so the server-side tool loop can expose skill_search /
+  // skill_get_content as agent tools over that snapshot. Fails soft to empty —
+  // a malformed payload just means no skill tools this turn, not a 400.
+  const skillsSnapshot = toSkillSnapshot(body.skills);
+  const skillTools = skillsSnapshot.length > 0 ? buildSkillTools() : [];
+  const skillCatalogBlock = buildSkillCatalogBlock(skillsSnapshot);
+
+  const runMessages: ChatMessage[] = [
+    { role: "system", content: buildSystemPrompt(skillCatalogBlock) },
+    ...messages,
+  ];
 
   const exposureMode = resolveToolExposureMode(process.env.TOOL_EXPOSURE_MODE);
 
   // `none` keeps the original AI-SDK-free plain streaming path byte-identical
-  // (a safe baseline / opt-out). `search` (default) and `all` drive the
-  // deferred tool-search loop, emitting text + tool_call/tool_result/metadata
-  // frames over the same SSE channel.
+  // (a safe baseline / opt-out). Skill tools are only exposed on the tool-loop
+  // paths (search/all) — the plain path has no tool dispatch, so a user who
+  // wants skill activation in `none` mode falls back to the /skill-name
+  // composer command (which injects the instructions directly on the wire).
   if (exposureMode === "none") {
     return streamPlainChat({ apiKey, model, runMessages, request, exposureMode });
   }
 
-  return streamToolChat({ apiKey, model, messages, exposureMode, request });
+  return streamToolChat({
+    apiKey,
+    model,
+    messages,
+    exposureMode,
+    request,
+    skillTools,
+    skillsSnapshot,
+    skillCatalogBlock,
+  });
+}
+
+/**
+ * Build the run's system prompt. The base prompt is always present; when the
+ * client sent a non-empty skills snapshot, the SKILLS_PROMPT and the
+ * `<available_skills>` catalog block are appended so the model knows skill
+ * tools are available and which skills to consider.
+ */
+function buildSystemPrompt(skillCatalogBlock: string): string {
+  if (skillCatalogBlock.length === 0) {
+    return SYSTEM_PROMPT;
+  }
+  return [SYSTEM_PROMPT, SKILLS_PROMPT, skillCatalogBlock].join("\n\n");
 }
 
 /** Plain streaming path: re-emit OpenRouter text deltas as our minimal SSE. */
@@ -262,15 +377,21 @@ async function streamToolChat({
   messages,
   exposureMode,
   request,
+  skillTools,
+  skillsSnapshot,
+  skillCatalogBlock,
 }: {
   apiKey: string;
   model: string;
   messages: ChatMessage[];
   exposureMode: Exclude<ReturnType<typeof resolveToolExposureMode>, "none">;
   request: Request;
+  skillTools: ReturnType<typeof buildSkillTools>;
+  skillsSnapshot: SkillCatalogSnapshot[];
+  skillCatalogBlock: string;
 }): Promise<Response> {
   const runMessages: OpenRouterMessage[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: buildSystemPrompt(skillCatalogBlock) },
     ...messages,
   ];
 
@@ -299,6 +420,16 @@ async function streamToolChat({
           onEvent: (event) => {
             send(sseData(event));
           },
+          // Skill tools ride alongside the bridge / mock catalog; calls to
+          // them dispatch over the per-request snapshot (no Postgres, no
+          // client round-trip — the snapshot is already in the request body).
+          ...(skillTools.length > 0
+            ? {
+                extraTools: skillTools,
+                extraToolHandler: (name: string, args: Record<string, unknown>) =>
+                  executeSkillTool(name, args, skillsSnapshot),
+              }
+            : {}),
         });
       } catch (error) {
         if (!request.signal.aborted) {
@@ -328,7 +459,9 @@ async function streamToolChat({
     },
   });
 
-  return new Response(stream, { headers: chatStreamHeaders(model, exposureMode) });
+  return new Response(stream, {
+    headers: chatStreamHeaders(model, exposureMode, skillTools.length),
+  });
 }
 
 /** Map a pre-stream OpenRouter error to the right HTTP response. */

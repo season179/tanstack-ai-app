@@ -81,6 +81,42 @@ type SendOptions = {
   skill?: Skill | null;
 };
 
+/**
+ * Trimmed skill snapshot shipped with every chat request so the server can
+ * expose skill_search / skill_get_content as agent tools. Mirrors the server's
+ * SkillCatalogSnapshot shape (id/name/description/body + nested references
+ * with the same four fields). Stays in lockstep with that shape.
+ */
+type SkillSnapshotEntry = {
+  id: string;
+  name: string;
+  description: string;
+  body: string;
+  references: Array<{
+    id: string;
+    name: string;
+    description: string;
+    body: string;
+  }>;
+};
+
+function toSkillSnapshot(skills: Skill[]): SkillSnapshotEntry[] {
+  return skills
+    .filter((skill) => skill.isEnabled)
+    .map((skill) => ({
+      body: skill.body,
+      description: skill.description,
+      id: skill.id,
+      name: skill.name,
+      references: skill.references.map((reference) => ({
+        body: reference.body,
+        description: reference.description,
+        id: reference.id,
+        name: reference.name,
+      })),
+    }));
+}
+
 type WireMessage = { role: ChatMessage["role"]; content: string };
 
 type RegenerateOptions = {
@@ -121,7 +157,7 @@ function makeId(): string {
  * stream completion, plus on unmount, so a reload mid- or post-conversation
  * restores the transcript. The empty assistant placeholder is never persisted.
  */
-export function useChatStream(sessionId: string): UseChatStream {
+export function useChatStream(sessionId: string, skills: Skill[] = []): UseChatStream {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<ChatStatus>("ready");
   const [error, setError] = useState<string | null>(null);
@@ -235,6 +271,12 @@ export function useChatStream(sessionId: string): UseChatStream {
               id: sessionId,
               model: model ?? undefined,
               messages: wireMessages,
+              // Ship the current enabled-skills snapshot so the server-side
+              // tool loop can expose skill_search / skill_get_content as agent
+              // tools. Empty array => no skill tools this turn (the server
+              // treats it the same as omitted). Re-sent every turn so an
+              // edit to a skill takes effect on the next message.
+              skills: toSkillSnapshot(skills),
             }),
             signal: controller.signal,
           });
@@ -342,7 +384,7 @@ export function useChatStream(sessionId: string): UseChatStream {
         setStatus("ready");
       })();
     },
-    [persist, sessionId],
+    [persist, sessionId, skills],
   );
 
   const send = useCallback(

@@ -60,8 +60,10 @@ Feature-complete with the reference's chat-surface thesis:
   input-token split (system / messages / tools), and reasoning (chain-of-
   thought) display for reasoning models.
 - Skills (localStorage CRUD + editor with references) activated either by a
-  `/skill-name` composer command or, in the reference, by agent-driven
-  `skill_search` / `skill_get_content` tools.
+  `/skill-name` composer command or by agent-driven `skill_search` /
+  `skill_get_content` tools (the reference's progressive-disclosure tier
+  system). The client ships its enabled-skills snapshot per request so the
+  server-side tool loop can expose the two skill tools over that snapshot.
 - Scheduled tasks (localStorage + a client-side cron ticker) with a live
   Running now / Up next / Past runs board and a create dialog. When a task
   fires, its instruction runs against `/api/chat` and the model's reply is

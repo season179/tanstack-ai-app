@@ -84,6 +84,18 @@ export type ToolLoopOptions = {
   onEvent: (event: ToolLoopEvent) => void;
   /** Threaded into deferred tool_call execution (scheduler origin, future). */
   toolContext?: ToolExecutionContext;
+  /**
+   * Additional function-tools exposed alongside the bridge (search mode) or
+   * mock catalog (all mode). Currently used for skill tools, which bypass the
+   * bridge and route to `extraToolHandler`. Calls to unknown extras also fall
+   * back to `extraToolHandler` so the model can self-correct.
+   */
+  extraTools?: OpenRouterFunctionTool[];
+  /**
+   * Dispatch a call to one of `extraTools`. Receives the parsed argument
+   * object; returns a JSON-serialisable value the loop feeds back to the model.
+   */
+  extraToolHandler?: (name: string, args: RealisticToolInput) => unknown | Promise<unknown>;
 };
 
 /** System prompt for tool-enabled runs, ported from the reference's chat route. */
@@ -172,16 +184,18 @@ const ALL_TOOLS: OpenRouterFunctionTool[] = toolRegistry.specs.map(
  * three bridge tools in `search` mode, every catalog tool in `all` mode, and
  * none in `none` mode (plain streaming). The chat route uses this to populate
  * the `x-total-tools` verification header (the reference's documented
- * /api/chat verification contract).
+ * /api/chat verification contract). Optional `extrasCount` adds skill (or any
+ * future non-bridge) tools to the count so the header reflects what the model
+ * actually sees this turn.
  */
-export function sentToolCountForMode(mode: ToolExposureMode): number {
+export function sentToolCountForMode(mode: ToolExposureMode, extrasCount = 0): number {
+  let count = 0;
   if (mode === "search") {
-    return BRIDGE_TOOLS.length;
+    count = BRIDGE_TOOLS.length;
+  } else if (mode === "all") {
+    count = ALL_TOOLS.length;
   }
-  if (mode === "all") {
-    return ALL_TOOLS.length;
-  }
-  return 0;
+  return count + extrasCount;
 }
 
 /**
@@ -204,9 +218,30 @@ export async function runToolLoop({
   signal,
   onEvent,
   toolContext = NO_TOOL_CONTEXT,
+  extraTools,
+  extraToolHandler,
 }: ToolLoopOptions): Promise<void> {
   const searchMode: ToolSearchMode = mode;
-  const tools = searchMode === "search" ? BRIDGE_TOOLS : ALL_TOOLS;
+  const bridgeTools = searchMode === "search" ? BRIDGE_TOOLS : ALL_TOOLS;
+  // Skill (and any future non-bridge) tools ride alongside the bridge / mock
+  // catalog so the model can call them directly without going through
+  // tool_search. They're dispatched through `extraToolHandler`, bypassing the
+  // bridge/registry, so the existing trace metadata (which counts only bridge
+  // activity) stays unchanged.
+  const extras = extraTools ?? [];
+  const extraNames = new Set(extras.map((tool) => tool.function.name));
+  const tools = extras.length > 0 ? [...bridgeTools, ...extras] : bridgeTools;
+  const options: ToolLoopOptions = {
+    apiKey,
+    model,
+    messages,
+    mode,
+    signal,
+    onEvent,
+    toolContext,
+    extraTools,
+    extraToolHandler,
+  };
   const trace: ToolSearchTraceEvent[] = [];
   const requestEstimates: RequestTokenEstimate[] = [];
   // Real OpenRouter usage summed across every round-trip in the loop. The user
@@ -287,12 +322,9 @@ export async function runToolLoop({
       });
 
       for (const call of turn.toolCalls) {
-        const { descriptor, resultMessage, ok } = await dispatchToolCall(
-          call,
-          mode,
-          trace,
-          toolContext,
-        );
+        const { descriptor, resultMessage, ok } = extraNames.has(call.function.name)
+          ? await dispatchExtraCall(call, options.extraToolHandler)
+          : await dispatchToolCall(call, mode, trace, toolContext);
         onEvent({ type: "tool_call", call: descriptor });
         onEvent({
           type: "tool_result",
@@ -358,6 +390,38 @@ async function dispatchToolCall(
   }
 }
 
+/**
+ * Dispatch a call to one of the loop's `extraTools` (today: a skill tool). The
+ * handler runs outside the bridge/registry so the existing trace metadata
+ * (which counts only bridge search/describe/call activity) is unaffected —
+ * the skill call is still visible to the UI via the tool_call/tool_result
+ * SSE frames emitted by the loop.
+ */
+async function dispatchExtraCall(
+  call: OpenRouterToolCall,
+  handler: ToolLoopOptions["extraToolHandler"],
+): Promise<{ descriptor: ToolCallDescriptor; resultMessage: string; ok: boolean }> {
+  const name = call.function.name;
+  const args = parseArguments(call.function.arguments);
+  const descriptor: ToolCallDescriptor = { name, arguments: args };
+
+  if (!handler) {
+    return {
+      descriptor,
+      resultMessage: `Tool '${name}' has no registered handler.`,
+      ok: false,
+    };
+  }
+
+  try {
+    const output = await handler(name, args);
+    return { descriptor, resultMessage: safeStringify(output), ok: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Tool execution failed.";
+    return { descriptor, resultMessage: message, ok: false };
+  }
+}
+
 /** Route a `search`-mode call to its bridge executor. */
 async function dispatchBridgeCall(
   name: string,
@@ -391,9 +455,11 @@ async function dispatchBridgeCall(
       return { descriptor, resultMessage: safeStringify(result), ok: true };
     }
 
-    // The model called a non-bridge tool by name while in search mode. Nudge it
-    // back to the bridge rather than failing hard — keeps the loop alive.
-    const message = `Unknown tool '${name}'. In search mode, call tool_search, tool_describe, or tool_call only.`;
+    // The model called a non-bridge tool by name while in search mode. Skill
+    // (and any future extra) tools are intercepted before this point, so a
+    // stray name here is genuinely unknown — nudge the model back to the
+    // bridge rather than failing hard, which keeps the loop alive.
+    const message = `Unknown tool '${name}'. In search mode, call tool_search, tool_describe, tool_call, or a skill tool only.`;
     return { descriptor, resultMessage: message, ok: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Bridge tool failed.";
