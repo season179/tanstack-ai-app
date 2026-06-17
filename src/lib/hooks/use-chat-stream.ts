@@ -6,11 +6,19 @@ import {
   touchSession,
   writeMessages,
 } from "~/lib/chat/sessions-store";
+import { buildActivatedSkillContent } from "~/lib/skills/activation";
+import type { Skill } from "~/lib/skills/skills-store";
 
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /**
+   * Set on a user turn that activated a skill via /skill-name. Stored with the
+   * transcript so the activation badge survives reloads; the injected skill
+   * instructions are never persisted (only sent on the wire, see send()).
+   */
+  activatedSkill?: string;
 };
 
 export type ChatStatus = "ready" | "submitted" | "streaming" | "error";
@@ -20,6 +28,12 @@ export type ChatStreamEvent = { type: "text"; text: string } | { type: "error"; 
 type SendOptions = {
   /** The model id the composer's picker chose, or null for the server default. */
   model?: string | null;
+  /**
+   * A skill activated by a leading /skill-name command. Its instructions are
+   * prepended to this user turn on the wire (only); null/undefined sends the
+   * raw text. Disabled or empty-body skills are ignored by the caller.
+   */
+  skill?: Skill | null;
 };
 
 export type UseChatStream = {
@@ -78,11 +92,18 @@ export function useChatStream(sessionId: string): UseChatStream {
   );
 
   // On unmount, flush whatever transcript we have so a tab close mid-stream
-  // still keeps the user turn and any partial assistant reply.
+  // still keeps the user turn and any partial assistant reply. Guarded: an
+  // empty ref means there is no unsaved content to flush, so we skip — this
+  // is essential under React StrictMode (TanStack Start's default), which
+  // double-invokes mount/unmount in dev: on the first unmount the load effect
+  // hasn't committed yet (messagesRef is still []), so an unconditional flush
+  // would overwrite persisted history with empty and silently wipe the chat.
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
-      persist(messagesRef.current);
+      if (messagesRef.current.length > 0) {
+        persist(messagesRef.current);
+      }
     };
   }, [persist]);
 
@@ -102,8 +123,23 @@ export function useChatStream(sessionId: string): UseChatStream {
 
       setError(null);
 
-      const userMessage: ChatMessage = { id: makeId(), role: "user", content: trimmed };
+      const activatedSkill = options.skill?.isEnabled ? options.skill.name : undefined;
+      const userMessage: ChatMessage = {
+        id: makeId(),
+        role: "user",
+        content: trimmed,
+        activatedSkill,
+      };
       const assistantMessage: ChatMessage = { id: makeId(), role: "assistant", content: "" };
+
+      // Skill activation: the instruction block is prepended to this user turn
+      // on the wire only. It is never stored in `content` (the UI and the
+      // transcript keep the raw /skill-name text), so a reload shows the
+      // original message and the activation badge rather than a wall of XML.
+      const skillBlock = options.skill?.isEnabled
+        ? buildActivatedSkillContent(options.skill)
+        : null;
+      const inject = (text: string) => (skillBlock ? `${skillBlock}\n\n${text}` : text);
 
       // Capture the outbound history before we append the placeholder assistant
       // turn: the server reconstructs nothing, so we send the full conversation
@@ -131,7 +167,10 @@ export function useChatStream(sessionId: string): UseChatStream {
             body: JSON.stringify({
               id: sessionId,
               model: options.model ?? undefined,
-              messages: outbound.map(({ role, content }) => ({ role, content })),
+              messages: outbound.map(({ id, role, content }) => ({
+                role,
+                content: id === userMessage.id ? inject(content) : content,
+              })),
             }),
             signal: controller.signal,
           });
@@ -178,15 +217,22 @@ export function useChatStream(sessionId: string): UseChatStream {
         }
 
         // Drop the placeholder if the assistant turn stayed empty (no tokens
-        // landed), then persist the final transcript + float the chat.
+        // landed), then persist the final transcript + float the chat. The
+        // updater's `current` is authoritative (the final streamed token may not
+        // have reached messagesRef yet). persist() only writes localStorage
+        // (no subscriber notify, idempotent under StrictMode's double-invoke) so
+        // it's safe inside the updater; touchSession() notifies AppSidebar's
+        // subscription, so it MUST run outside — calling it during this state
+        // update triggers React's "Cannot update a component while rendering a
+        // different component" warning.
         setMessages((current) => {
           const finalized = current.filter(
             (message) => !(message.id === assistantId && message.content.length === 0),
           );
           persist(finalized);
-          touchSession(sessionId);
           return finalized;
         });
+        touchSession(sessionId);
         setStatus("ready");
       })();
     },
