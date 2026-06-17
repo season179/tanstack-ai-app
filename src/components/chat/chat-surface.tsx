@@ -5,6 +5,7 @@ import { useChatShell } from "~/components/chat/chat-shell-context";
 import { ModelPicker } from "~/components/chat/model-picker";
 import { ToolTracePanel } from "~/components/chat/tool-trace-panel";
 import { Button } from "~/components/ui/button";
+import { Markdown } from "~/components/ui/markdown";
 import {
   type ChatUsageSummary,
   formatUsageLine,
@@ -407,11 +408,22 @@ function MessageBubble({
           <span className="size-2 animate-pulse rounded-full bg-primary" />
           Thinking…
         </span>
-      ) : (
-        <span>
+      ) : isUser ? (
+        // User input is rendered verbatim (whitespace preserved) — never
+        // interpreted as markdown — so what the user typed is exactly what they
+        // see and what the model receives on the wire stays unambiguous.
+        <span className="whitespace-pre-wrap">
           {content}
           {isStreaming ? <span className="ml-0.5 inline-block animate-pulse">▋</span> : null}
         </span>
+      ) : (
+        // Assistant replies are markdown (the reference renders via Streamdown).
+        // We stream into the same Markdown tree so fenced tables/code reflow as
+        // tokens arrive; the trailing caret sits outside so it isn't parsed.
+        <div>
+          <Markdown>{content}</Markdown>
+          {isStreaming ? <span className="ml-0.5 inline-block animate-pulse">▋</span> : null}
+        </div>
       )}
     </div>
   );

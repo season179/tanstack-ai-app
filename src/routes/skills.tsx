@@ -4,6 +4,7 @@ import { useCallback, useId, useRef, useState } from "react";
 
 import { SiteHeader, SiteHeaderStatus } from "~/components/site-header";
 import { Button } from "~/components/ui/button";
+import { Markdown } from "~/components/ui/markdown";
 import { useHydrated } from "~/lib/hooks/use-hydrated";
 import { type Skill, useSkills } from "~/lib/hooks/use-skills";
 import {
@@ -379,12 +380,11 @@ function SkillDetail({
 
       <section className="mt-6">
         <h3 className="text-xs font-semibold text-muted-foreground">Instructions</h3>
-        {/* The reference renders markdown via Streamdown; we render the raw
-            instructions text wrapped and proportioned for reading instead of
-            pulling a markdown dependency into a chat app that streams plain
-            text. Honesty over fidelity here. */}
-        <div className="mt-3 max-w-[72ch] whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
-          {skill.body}
+        {/* Rendered as markdown (the reference uses Streamdown); user-authored
+           bodies are trusted local content, so the default no-raw-HTML policy
+           is enough. */}
+        <div className="mt-3 max-w-[72ch] text-sm leading-6 text-foreground">
+          <Markdown>{skill.body}</Markdown>
         </div>
       </section>
 
@@ -404,10 +404,8 @@ function SkillDetail({
                   {reference.description}
                 </p>
                 <CopyableId id={reference.id} label="Reference ID" />
-                <div className="mt-3 max-h-72 max-w-[72ch] overflow-auto border-t border-border/70 pt-3">
-                  <div className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
-                    {reference.body}
-                  </div>
+                <div className="mt-3 max-h-72 max-w-[72ch] overflow-auto border-t border-border/70 pt-3 text-sm leading-6 text-foreground">
+                  <Markdown>{reference.body}</Markdown>
                 </div>
               </li>
             ))}
@@ -588,8 +586,8 @@ function SkillEditor({
               {showPreview ? (
                 <div className="min-h-48 rounded-md border border-input bg-background px-3 py-2">
                   {draft.body.trim() ? (
-                    <div className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
-                      {draft.body}
+                    <div className="text-sm leading-6 text-foreground">
+                      <Markdown>{draft.body}</Markdown>
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">Nothing to preview yet.</p>
