@@ -48,6 +48,20 @@ export const RUN_TIMEOUT_FALLBACK_MS = 10 * 60_000;
 /** Ticker interval — short enough that a fire looks live on the board. */
 const TICK_INTERVAL_MS = 4000;
 
+/**
+ * Whether a task would project a next fire *if it were enabled*. Mirrors
+ * projectNextFire's schedule logic but ignores the `isEnabled` gate, so the
+ * board can surface resumable (paused) tasks separately from consumed ones:
+ * a one-off that already fired projects no future fire and isn't worth
+ * re-enabling, but a paused recurring task (or an unfired one-off) is.
+ */
+export function canFire(task: ScheduledTask): boolean {
+  if (task.scheduleType === "once") {
+    return Boolean(task.runAt) && !task.lastFiredAt;
+  }
+  return Boolean(task.cron);
+}
+
 /** Project the next fire for a task strictly after its last fire (or
  *  creation). Null = nothing scheduled. */
 export function projectNextFire(task: ScheduledTask): Date | null {

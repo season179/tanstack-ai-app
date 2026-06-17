@@ -1,4 +1,4 @@
-import { CalendarClock, Pause, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, Pause, Play, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState, useSyncExternalStore } from "react";
 
 import { SiteHeader, SiteHeaderStatus } from "~/components/site-header";
@@ -12,9 +12,9 @@ import {
   payloadKindLabel,
   runStatusClasses,
 } from "~/lib/tasks/display";
-import { buildOverview } from "~/lib/tasks/scheduler";
+import { buildOverview, canFire } from "~/lib/tasks/scheduler";
 import { getRunsSnapshot, getTasksSnapshot, subscribeTasks } from "~/lib/tasks/tasks-store";
-import type { ScheduledTaskRun, UpcomingScheduledJob } from "~/lib/tasks/types";
+import type { ScheduledTask, ScheduledTaskRun, UpcomingScheduledJob } from "~/lib/tasks/types";
 import { cn } from "~/lib/utils";
 
 import { CreateTaskDialog } from "./create-task-dialog";
@@ -32,8 +32,20 @@ export function ScheduledJobsBoard() {
   const runs = useSyncExternalStore(subscribeTasks, getRunsSnapshot, getRunsSnapshot);
   const overview = useMemo(() => buildOverview(tasks, runs), [tasks, runs]);
 
+  // Paused tasks are hidden from the overview (buildOverview only includes
+  // enabled tasks), so without this they'd be unreachable: the Pause button is
+  // otherwise irreversible. Surface the resumable ones — a disabled task that
+  // would still fire if re-enabled (a recurring task, or an unfired one-off) —
+  // with an Enable action. A fired one-off projects no future fire and stays
+  // reachable only via its Past-runs history, matching the reference's
+  // pause/resume semantics.
+  const paused = useMemo(() => tasks.filter((task) => !task.isEnabled && canFire(task)), [tasks]);
+
   const isEmpty =
-    overview.running.length === 0 && overview.upcoming.length === 0 && overview.past.length === 0;
+    overview.running.length === 0 &&
+    overview.upcoming.length === 0 &&
+    paused.length === 0 &&
+    overview.past.length === 0;
 
   return (
     <main className="min-h-0 flex-1 overflow-y-auto bg-background">
@@ -57,6 +69,12 @@ export function ScheduledJobsBoard() {
               jobs={overview.upcoming}
               onDeleteTask={removeTask}
               onDisableTask={(taskId) => updateTask(taskId, { isEnabled: false })}
+              onViewTranscript={goToTranscript}
+            />
+            <PausedSection
+              tasks={paused}
+              onDeleteTask={removeTask}
+              onEnableTask={(taskId) => updateTask(taskId, { isEnabled: true })}
               onViewTranscript={goToTranscript}
             />
             <PastSection runs={overview.past} onViewTranscript={goToTranscript} />
@@ -230,6 +248,99 @@ function UpcomingSection({
   );
 }
 
+function PausedSection({
+  tasks,
+  onDeleteTask,
+  onEnableTask,
+  onViewTranscript,
+}: {
+  tasks: ScheduledTask[];
+  onDeleteTask: (taskId: string) => void;
+  onEnableTask: (taskId: string) => void;
+  onViewTranscript: (homeSessionId: string | null) => void;
+}) {
+  // Only render when there are paused tasks: a permanent "Paused 0 — nothing
+  // paused" row would be board noise, unlike Running/Up next/Past which are
+  // ever-present fixtures.
+  if (tasks.length === 0) {
+    return null;
+  }
+
+  return (
+    <section>
+      <SectionHeading count={tasks.length} title="Paused" />
+
+      <div className="mt-2 overflow-x-auto rounded-lg border border-border/80">
+        <table className="w-full min-w-[40rem] border-collapse text-left text-xs">
+          <thead>
+            <tr className="border-b border-border/80 text-[11px] text-muted-foreground">
+              <th className="px-3 py-2 font-medium">Task</th>
+              <th className="px-3 py-2 font-medium">Schedule</th>
+              <th className="px-3 py-2 font-medium">{""}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/60">
+            {tasks.map((task) => (
+              <tr key={task.id}>
+                <td
+                  className="max-w-64 truncate px-3 py-2 font-medium text-foreground"
+                  title={task.title}
+                >
+                  {task.title}
+                </td>
+                <td className="px-3 py-2 text-muted-foreground">{taskScheduleLabel(task)}</td>
+                <td className="px-3 py-2 text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    {task.homeSessionId ? (
+                      <Button
+                        className="h-7 px-2 text-[11px]"
+                        onClick={() => onViewTranscript(task.homeSessionId)}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        View transcript
+                      </Button>
+                    ) : null}
+                    <Button
+                      aria-label="Enable task"
+                      className="size-7 text-muted-foreground hover:text-foreground"
+                      onClick={() => onEnableTask(task.id)}
+                      size="icon"
+                      title="Enable task"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Play aria-hidden="true" className="size-3" />
+                    </Button>
+                    <Button
+                      aria-label="Delete task"
+                      className="size-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => {
+                        if (
+                          window.confirm(`Delete the task '${task.title}' and its run history?`)
+                        ) {
+                          onDeleteTask(task.id);
+                        }
+                      }}
+                      size="icon"
+                      title="Delete task"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Trash2 aria-hidden="true" className="size-3" />
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function PastSection({
   runs,
   onViewTranscript,
@@ -346,6 +457,14 @@ function EmptyNote({ children }: { children: React.ReactNode }) {
 function scheduleLabel(job: UpcomingScheduledJob): string {
   if (job.scheduleType === "cron") {
     return `Recurring · cron ${job.cron}`;
+  }
+  return "One-off";
+}
+
+/** Schedule readout for a paused task (the task entity, not an upcoming job). */
+function taskScheduleLabel(task: ScheduledTask): string {
+  if (task.scheduleType === "cron") {
+    return `Recurring · cron ${task.cron}`;
   }
   return "One-off";
 }
