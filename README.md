@@ -71,10 +71,15 @@ schema builders, `getMockToolSpec` name lookup, and `executeMockTool`'s output
 shape + record-label derivation across first-string-wins / spec.title fallback
 / empty-input cases), the OpenAI/OpenRouter SSE chunk parser (covering the
 usage-capture and tool-call fragment reassembly regressions documented in
-the iteration log), and the client-side `/api/chat` SSE reader (the
+the iteration log), the client-side `/api/chat` SSE reader (the
 `readChatStream` line-buffered frame pump plus the six wire-frame validators
 for tool_call/tool_result/usage/breakdown/metadata/trace that protect the UI
-against malformed payloads).
+against malformed payloads), the OpenRouter client's pure helpers (the
+`compactUsage`/`sumUsage` per-turn usage compaction + aggregation that feed
+the usage frames, and the `requireEnv`/`MissingEnvironmentVariableError`/
+`OpenRouterError` env + error guards), and the tool loop's
+`sentToolCountForMode` (the per-exposure-mode schema count that drives the
+`x-total-tools` verification header across search/all/none + skill-extras).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
