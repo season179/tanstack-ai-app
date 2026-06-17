@@ -3,6 +3,7 @@ import { useEffect } from "react";
 
 import { ChatShellProvider, useChatShell } from "~/components/chat/chat-shell-context";
 import { ChatSurface } from "~/components/chat/chat-surface";
+import { TokenUsageMenu } from "~/components/chat/token-usage-menu";
 import { SiteHeader, SiteHeaderStatus } from "~/components/site-header";
 import { useChatSessions } from "~/lib/hooks/use-chat-sessions";
 import { useHydrated } from "~/lib/hooks/use-hydrated";
@@ -31,14 +32,14 @@ function ChatSessionRoute() {
   }, [hydrated, exists, navigate]);
 
   return (
-    <ChatShellProvider>
+    <ChatShellProvider key={sessionId}>
       <ChatSessionRouteInner sessionId={sessionId} />
     </ChatShellProvider>
   );
 }
 
 function ChatSessionRouteInner({ sessionId }: { sessionId: string }) {
-  const { chatBusy } = useChatShell();
+  const { chatBusy, usage } = useChatShell();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -47,6 +48,7 @@ function ChatSessionRouteInner({ sessionId }: { sessionId: string }) {
         status={
           <SiteHeaderStatus pulse={chatBusy}>{chatBusy ? "Responding" : "Ready"}</SiteHeaderStatus>
         }
+        actions={<TokenUsageMenu summary={usage} />}
       />
 
       {/* key={sessionId} forces a clean remount (and a fresh transcript read)

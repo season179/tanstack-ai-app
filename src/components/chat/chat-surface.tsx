@@ -5,7 +5,12 @@ import { useChatShell } from "~/components/chat/chat-shell-context";
 import { ModelPicker } from "~/components/chat/model-picker";
 import { ToolTracePanel } from "~/components/chat/tool-trace-panel";
 import { Button } from "~/components/ui/button";
-import { formatUsageLine, isUsageEmpty } from "~/lib/chat/tool-events";
+import {
+  type ChatUsageSummary,
+  formatUsageLine,
+  isUsageEmpty,
+  sumUsage,
+} from "~/lib/chat/tool-events";
 import { useChatStream } from "~/lib/hooks/use-chat-stream";
 import { useModels } from "~/lib/hooks/use-models";
 import { useSkills } from "~/lib/hooks/use-skills";
@@ -58,12 +63,54 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
 
   const isBusy = status === "submitted" || status === "streaming";
   const canSubmit = input.trim().length > 0 && !isBusy;
-  const { setBusy } = useChatShell();
+  const { setBusy, setUsage } = useChatShell();
 
   // Mirror the streaming state up so the route header can show Ready/Responding.
   useEffect(() => {
     setBusy(isBusy);
   }, [isBusy, setBusy]);
+
+  // Surface the running token totals to the header's Session Tokens menu.
+  // `messages` gets a new reference on essentially every render during
+  // streaming, so memoizing on it alone would mint a fresh summary object each
+  // time — even though the numbers only move when a turn finishes (that's when
+  // the usage frame lands). A signature guard preserves the prior identity so
+  // the reporting effect doesn't loop (setUsage -> shell re-render -> us ->
+  // recompute -> setUsage ...).
+  const usageRef = useRef<ChatUsageSummary>({
+    sessionUsage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      reasoningTokens: 0,
+      cachedInputTokens: 0,
+    },
+  });
+  const usageSignatureRef = useRef<string>("");
+  const usageSummary = useMemo<ChatUsageSummary>(() => {
+    const assistantMessages = messages.filter((message) => message.role === "assistant");
+    const latest = assistantMessages.at(-1);
+    const next: ChatUsageSummary = {
+      sessionUsage: sumUsage(
+        assistantMessages
+          .map((message) => message.tokenUsage)
+          .filter((usage): usage is NonNullable<typeof usage> => usage !== undefined),
+      ),
+      latestUsage: latest?.tokenUsage,
+      latestToolSearch: latest?.toolSearch,
+    };
+    const signature = JSON.stringify(next);
+    if (signature === usageSignatureRef.current) {
+      return usageRef.current;
+    }
+    usageSignatureRef.current = signature;
+    usageRef.current = next;
+    return next;
+  }, [messages]);
+
+  useEffect(() => {
+    setUsage(usageSummary);
+  }, [usageSummary, setUsage]);
 
   const focusInput = useCallback(() => {
     requestAnimationFrame(() => {

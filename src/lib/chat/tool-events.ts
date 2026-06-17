@@ -217,6 +217,40 @@ export function truncateForPreview(text: string, max = 140): string {
   return `${oneLine.slice(0, max - 1)}…`;
 }
 
+/**
+ * Sum a list of per-turn usage records into one cumulative total. The tool
+ * loop already sums across its round-trips, so this is the across-turns
+ * accumulator (used for the session-level header readout). Empty/absent
+ * entries contribute nothing.
+ */
+export function sumUsage(usages: Iterable<TurnTokenUsage>): TurnTokenUsage {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let totalTokens = 0;
+  let reasoningTokens = 0;
+  let cachedInputTokens = 0;
+  for (const usage of usages) {
+    inputTokens += usage.inputTokens;
+    outputTokens += usage.outputTokens;
+    totalTokens += usage.totalTokens;
+    reasoningTokens += usage.reasoningTokens;
+    cachedInputTokens += usage.cachedInputTokens;
+  }
+  return { inputTokens, outputTokens, totalTokens, reasoningTokens, cachedInputTokens };
+}
+
+/**
+ * The header's per-session usage readout. `sessionUsage` accumulates every
+ * assistant turn in the transcript; `latestUsage`/`latestToolSearch` reflect
+ * the most recent assistant turn. (`latestBreakdown` from the reference needs
+ * the full input-token allocation machinery and is deferred to a later iter.)
+ */
+export type ChatUsageSummary = {
+  sessionUsage: TurnTokenUsage;
+  latestUsage?: TurnTokenUsage;
+  latestToolSearch?: ToolSearchSummary;
+};
+
 /** A usage record with every field at 0 is the "provider omitted usage" shape. */
 export function isUsageEmpty(usage: TurnTokenUsage): boolean {
   return (
