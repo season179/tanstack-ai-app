@@ -6,6 +6,16 @@ import {
   touchSession,
   writeMessages,
 } from "~/lib/chat/sessions-store";
+import {
+  applyToolCall,
+  applyToolResult,
+  type MetadataFrame,
+  type ToolCallFrame,
+  type ToolFrame,
+  type ToolResultFrame,
+  type ToolSearchSummary,
+  type ToolStep,
+} from "~/lib/chat/tool-events";
 import { buildActivatedSkillContent } from "~/lib/skills/activation";
 import type { Skill } from "~/lib/skills/skills-store";
 
@@ -19,11 +29,25 @@ export type ChatMessage = {
    * instructions are never persisted (only sent on the wire, see send()).
    */
   activatedSkill?: string;
+  /**
+   * Assistant turns only: the tool_call/tool_result pairs the server emitted
+   * while producing this reply (the deferred tool-search loop). Empty/omitted
+   * for plain text turns. Persisted so a reload keeps the activity trace.
+   */
+  toolSteps?: ToolStep[];
+  /**
+   * Assistant turns only: the deferred-vs-all token-savings summary emitted as
+   * a final metadata frame. Surfaced under the bubble; persisted with the turn.
+   */
+  toolSearch?: ToolSearchSummary;
 };
 
 export type ChatStatus = "ready" | "submitted" | "streaming" | "error";
 
-export type ChatStreamEvent = { type: "text"; text: string } | { type: "error"; message: string };
+export type ChatStreamEvent =
+  | { type: "text"; text: string }
+  | { type: "error"; message: string }
+  | ToolFrame;
 
 type SendOptions = {
   /** The model id the composer's picker chose, or null for the server default. */
@@ -199,12 +223,33 @@ export function useChatStream(sessionId: string): UseChatStream {
               setError(event.message);
               return;
             }
+            if (event.type === "text") {
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === assistantId
+                    ? { ...message, content: message.content + event.text }
+                    : message,
+                ),
+              );
+              return;
+            }
+            // tool_call / tool_result / metadata: fold into the assistant turn.
             setMessages((current) =>
-              current.map((message) =>
-                message.id === assistantId
-                  ? { ...message, content: message.content + event.text }
-                  : message,
-              ),
+              current.map((message) => {
+                if (message.id !== assistantId) {
+                  return message;
+                }
+                if (event.type === "tool_call") {
+                  const steps = applyToolCall(message.toolSteps ?? [], event);
+                  return { ...message, toolSteps: steps };
+                }
+                if (event.type === "tool_result") {
+                  const steps = applyToolResult(message.toolSteps ?? [], event);
+                  return { ...message, toolSteps: steps };
+                }
+                // metadata
+                return { ...message, toolSearch: event.metadata };
+              }),
             );
           });
         } catch (streamError) {
@@ -287,7 +332,14 @@ async function readChatStream(
         continue;
       }
 
-      let parsed: { type?: unknown; text?: unknown; message?: unknown };
+      let parsed: {
+        type?: unknown;
+        text?: unknown;
+        message?: unknown;
+        call?: unknown;
+        result?: unknown;
+        metadata?: unknown;
+      };
       try {
         parsed = JSON.parse(payload) as typeof parsed;
       } catch {
@@ -298,7 +350,95 @@ async function readChatStream(
         onEvent({ type: "text", text: parsed.text });
       } else if (parsed.type === "error" && typeof parsed.message === "string") {
         onEvent({ type: "error", message: parsed.message });
+      } else if (parsed.type === "tool_call") {
+        const frame = parseToolCallFrame(parsed.call);
+        if (frame) {
+          onEvent(frame);
+        }
+      } else if (parsed.type === "tool_result") {
+        const frame = parseToolResultFrame(parsed.result);
+        if (frame) {
+          onEvent(frame);
+        }
+      } else if (parsed.type === "metadata") {
+        const frame = parseMetadataFrame(parsed.metadata);
+        if (frame) {
+          onEvent(frame);
+        }
       }
     }
   }
+}
+
+/** Validate a tool_call frame payload off the wire; null if malformed. */
+function parseToolCallFrame(raw: unknown): ToolCallFrame | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const call = raw as { name?: unknown; arguments?: unknown; service?: unknown; title?: unknown };
+  if (typeof call.name !== "string" || call.name.length === 0) {
+    return null;
+  }
+  return {
+    type: "tool_call",
+    call: {
+      name: call.name,
+      arguments: call.arguments,
+      service: typeof call.service === "string" ? call.service : undefined,
+      title: typeof call.title === "string" ? call.title : undefined,
+    },
+  };
+}
+
+/** Validate a tool_result frame payload off the wire; null if malformed. */
+function parseToolResultFrame(raw: unknown): ToolResultFrame | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const result = raw as { name?: unknown; ok?: unknown; output?: unknown };
+  if (typeof result.name !== "string" || result.name.length === 0) {
+    return null;
+  }
+  return {
+    type: "tool_result",
+    result: {
+      name: result.name,
+      ok: result.ok === true,
+      output: result.output,
+    },
+  };
+}
+
+/**
+ * Validate a metadata frame payload off the wire; null if malformed or missing
+ * the numeric fields the UI reads. Unknown extra fields (e.g. `trace`) are
+ * tolerated and dropped so the persisted shape stays the client's own.
+ */
+function parseMetadataFrame(raw: unknown): MetadataFrame | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const m = raw as Record<string, unknown>;
+  const mode = m.mode === "all" || m.mode === "search" ? m.mode : null;
+  if (!mode) {
+    return null;
+  }
+  const num = (key: string): number => (typeof m[key] === "number" ? (m[key] as number) : 0);
+  return {
+    type: "metadata",
+    metadata: {
+      mode,
+      availableToolCount: num("availableToolCount"),
+      sentToolCount: num("sentToolCount"),
+      deferredToolCount: num("deferredToolCount"),
+      requestCount: num("requestCount"),
+      catalogSchemaTokens: num("catalogSchemaTokens"),
+      sentSchemaTokens: num("sentSchemaTokens"),
+      baselineSchemaTokens: num("baselineSchemaTokens"),
+      savedSchemaTokens: num("savedSchemaTokens"),
+      searchCount: num("searchCount"),
+      describeCount: num("describeCount"),
+      callCount: num("callCount"),
+    },
+  };
 }

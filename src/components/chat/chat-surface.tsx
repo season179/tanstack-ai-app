@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useChatShell } from "~/components/chat/chat-shell-context";
 import { ModelPicker } from "~/components/chat/model-picker";
+import { ToolTracePanel } from "~/components/chat/tool-trace-panel";
 import { Button } from "~/components/ui/button";
 import { useChatStream } from "~/lib/hooks/use-chat-stream";
 import { useModels } from "~/lib/hooks/use-models";
@@ -120,20 +121,24 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
             </div>
           ) : (
             <div className="flex flex-col gap-6">
-              {messages.map((message) => (
-                <MessageBubble
-                  activatedSkill={message.activatedSkill}
-                  content={message.content}
-                  isStreaming={
-                    isBusy && message.id === messages.at(-1)?.id && message.role === "assistant"
-                  }
-                  key={message.id}
-                  sender={message.role}
-                />
-              ))}
+              {messages.map((message) => {
+                const isAssistantActive =
+                  isBusy && message.id === messages.at(-1)?.id && message.role === "assistant";
+                return (
+                  <MessageRow
+                    key={message.id}
+                    activatedSkill={message.activatedSkill}
+                    content={message.content}
+                    isStreaming={isAssistantActive}
+                    sender={message.role}
+                    toolSteps={message.toolSteps}
+                    toolSearch={message.toolSearch}
+                  />
+                );
+              })}
 
               {status === "submitted" ? (
-                <MessageBubble content="" isStreaming sender="assistant" />
+                <MessageRow content="" isStreaming sender="assistant" />
               ) : null}
             </div>
           )}
@@ -270,6 +275,40 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
   );
 }
 
+function MessageRow({
+  activatedSkill,
+  content,
+  isStreaming,
+  sender,
+  toolSteps,
+  toolSearch,
+}: {
+  activatedSkill?: string;
+  content: string;
+  isStreaming?: boolean;
+  sender: "user" | "assistant";
+  toolSteps?: import("~/lib/chat/tool-events").ToolStep[];
+  toolSearch?: import("~/lib/chat/tool-events").ToolSearchSummary;
+}) {
+  const isUser = sender === "user";
+  const hasToolActivity =
+    !isUser && ((toolSteps && toolSteps.length > 0) || toolSearch !== undefined);
+
+  return (
+    <div className={cn("flex flex-col gap-1.5", isUser ? "items-end" : "items-start")}>
+      <MessageBubble
+        activatedSkill={activatedSkill}
+        content={content}
+        isStreaming={isStreaming}
+        sender={sender}
+      />
+      {hasToolActivity ? (
+        <ToolTracePanel isStreaming={isStreaming} steps={toolSteps ?? []} summary={toolSearch} />
+      ) : null}
+    </div>
+  );
+}
+
 function MessageBubble({
   activatedSkill,
   content,
@@ -285,35 +324,33 @@ function MessageBubble({
   const showCaret = isStreaming && content.length === 0;
 
   return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm",
-          isUser
-            ? "rounded-br-sm bg-primary text-primary-foreground"
-            : "rounded-bl-sm bg-card text-card-foreground",
-        )}
-      >
-        {isUser && activatedSkill ? (
-          <div className="mb-1.5">
-            <span className="inline-flex items-center gap-1 rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[11px] font-medium">
-              <Zap aria-hidden="true" className="size-3" />
-              {activatedSkill}
-            </span>
-          </div>
-        ) : null}
-        {showCaret ? (
-          <span className="inline-flex items-center gap-2 text-muted-foreground">
-            <span className="size-2 animate-pulse rounded-full bg-primary" />
-            Thinking…
+    <div
+      className={cn(
+        "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm",
+        isUser
+          ? "rounded-br-sm bg-primary text-primary-foreground"
+          : "rounded-bl-sm bg-card text-card-foreground",
+      )}
+    >
+      {isUser && activatedSkill ? (
+        <div className="mb-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[11px] font-medium">
+            <Zap aria-hidden="true" className="size-3" />
+            {activatedSkill}
           </span>
-        ) : (
-          <span>
-            {content}
-            {isStreaming ? <span className="ml-0.5 inline-block animate-pulse">▋</span> : null}
-          </span>
-        )}
-      </div>
+        </div>
+      ) : null}
+      {showCaret ? (
+        <span className="inline-flex items-center gap-2 text-muted-foreground">
+          <span className="size-2 animate-pulse rounded-full bg-primary" />
+          Thinking…
+        </span>
+      ) : (
+        <span>
+          {content}
+          {isStreaming ? <span className="ml-0.5 inline-block animate-pulse">▋</span> : null}
+        </span>
+      )}
     </div>
   );
 }
