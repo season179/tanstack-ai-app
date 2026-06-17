@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowUp, RotateCcw, Square, Zap } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, RotateCcw, Square, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useChatShell } from "~/components/chat/chat-shell-context";
@@ -23,6 +23,11 @@ import { cn } from "~/lib/utils";
 // Shared horizontal framing: same centered column + gutters the rest of the app
 // uses (max-w-7xl + px-4/8/10).
 const SHELL_COLUMN = "mx-auto w-full max-w-7xl px-4 sm:px-8 lg:px-10";
+
+/** If the user is within this many px of the bottom, treat them as "pinned"
+ * and keep auto-following the stream; further up, leave them in place and
+ * surface a jump-to-latest button instead of yanking them down per token. */
+const SCROLL_PIN_THRESHOLD = 80;
 
 export function ChatSurface({ sessionId }: { sessionId: string }) {
   const { messages, status, error, send, stop, regenerate } = useChatStream(sessionId);
@@ -146,15 +151,38 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
     });
   }, []);
 
-  // Auto-scroll to the latest token as it streams in.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-run on every message/token change so the newest content stays in view.
-  useEffect(() => {
+  // Pin-to-bottom auto-scroll: only follow the stream when the user is already
+  // near the latest message. If they've scrolled up to read history, leave them
+  // there and surface a "jump to latest" button (below) instead of yanking them
+  // down on every streamed token. The ref MUST sit on the element that actually
+  // scrolls (overflow-y-auto) or scrollTo() is a silent no-op.
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const handleScroll = useCallback(() => {
     const content = contentRef.current;
     if (!content) {
       return;
     }
-    content.scrollTo({ top: content.scrollHeight });
-  }, [messages]);
+    const distanceFromBottom = content.scrollHeight - content.scrollTop - content.clientHeight;
+    setIsAtBottom(distanceFromBottom <= SCROLL_PIN_THRESHOLD);
+  }, []);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior) => {
+    const content = contentRef.current;
+    if (!content) {
+      return;
+    }
+    content.scrollTo({ top: content.scrollHeight, behavior });
+    setIsAtBottom(true);
+  }, []);
+
+  // Auto-follow the stream (instantly) only while pinned; on mount this also
+  // lands a restored transcript at the most recent turn.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: messages is an intentional trigger (not referenced in the body) so we re-scroll as new tokens arrive.
+  useEffect(() => {
+    if (isAtBottom) {
+      scrollToBottom("auto");
+    }
+  }, [isAtBottom, messages, scrollToBottom]);
 
   useEffect(() => {
     if (!isBusy) {
@@ -177,51 +205,73 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
     send(text, { model: selectedModel, skill });
     setInput("");
     setSkillMenuDismissed(false);
+    // The user just sent: re-pin so the streaming reply stays in view even if
+    // they had scrolled up to quote history.
+    setIsAtBottom(true);
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className={`${SHELL_COLUMN} py-6 sm:py-10`} ref={contentRef}>
-          {messages.length === 0 ? (
-            <div className="mx-auto max-w-md py-16 text-center">
-              <p className="text-lg font-semibold text-foreground">How can I help?</p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Ask anything. Responses stream live from OpenRouter.
-              </p>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-6">
-              {messages.map((message) => {
-                const isAssistantActive =
-                  isBusy && message.id === messages.at(-1)?.id && message.role === "assistant";
-                return (
-                  <MessageRow
-                    key={message.id}
-                    activatedSkill={message.activatedSkill}
-                    content={message.content}
-                    isLastAssistant={
-                      canRegenerateLast &&
-                      message.id === lastMessage?.id &&
-                      message.role === "assistant"
-                    }
-                    isStreaming={isAssistantActive}
-                    onRegenerate={handleRegenerate}
-                    reasoning={message.reasoning}
-                    sender={message.role}
-                    tokenUsage={message.tokenUsage}
-                    toolSteps={message.toolSteps}
-                    toolSearch={message.toolSearch}
-                  />
-                );
-              })}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          aria-live="polite"
+          className="min-h-0 flex-1 overflow-y-auto"
+          onScroll={handleScroll}
+          ref={contentRef}
+        >
+          <div className={`${SHELL_COLUMN} py-6 sm:py-10`}>
+            {messages.length === 0 ? (
+              <div className="mx-auto max-w-md py-16 text-center">
+                <p className="text-lg font-semibold text-foreground">How can I help?</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Ask anything. Responses stream live from OpenRouter.
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-6">
+                {messages.map((message) => {
+                  const isAssistantActive =
+                    isBusy && message.id === messages.at(-1)?.id && message.role === "assistant";
+                  return (
+                    <MessageRow
+                      key={message.id}
+                      activatedSkill={message.activatedSkill}
+                      content={message.content}
+                      isLastAssistant={
+                        canRegenerateLast &&
+                        message.id === lastMessage?.id &&
+                        message.role === "assistant"
+                      }
+                      isStreaming={isAssistantActive}
+                      onRegenerate={handleRegenerate}
+                      reasoning={message.reasoning}
+                      sender={message.role}
+                      tokenUsage={message.tokenUsage}
+                      toolSteps={message.toolSteps}
+                      toolSearch={message.toolSearch}
+                    />
+                  );
+                })}
 
-              {status === "submitted" ? (
-                <MessageRow content="" isStreaming sender="assistant" />
-              ) : null}
-            </div>
-          )}
+                {status === "submitted" ? (
+                  <MessageRow content="" isStreaming sender="assistant" />
+                ) : null}
+              </div>
+            )}
+          </div>
         </div>
+        {messages.length > 0 && !isAtBottom ? (
+          <Button
+            aria-label="Scroll to latest message"
+            className="absolute bottom-4 right-4 z-10 rounded-full shadow-md"
+            onClick={() => scrollToBottom("smooth")}
+            size="icon"
+            type="button"
+            variant="outline"
+          >
+            <ArrowDown className="size-4" />
+          </Button>
+        ) : null}
       </div>
 
       <div className="shrink-0 bg-background/95 py-3 backdrop-blur sm:py-5">
