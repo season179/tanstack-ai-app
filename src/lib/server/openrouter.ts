@@ -243,6 +243,12 @@ export type StreamToolAwareTurnOptions = {
   signal?: AbortSignal;
   /** Streamed for each assistant text delta (already includes tool loops). */
   onText?: (delta: string) => void;
+  /**
+   * Streamed for each reasoning (chain-of-thought) delta. Reasoning models emit
+   * this ahead of / interleaved with the visible answer; the loop re-emits it
+   * on its own SSE frame type so the UI can render a collapsible panel.
+   */
+  onReasoning?: (delta: string) => void;
 };
 
 /**
@@ -301,6 +307,7 @@ export async function streamToolAwareTurn({
   tools,
   signal,
   onText,
+  onReasoning,
 }: StreamToolAwareTurnOptions): Promise<ToolAwareTurnResult> {
   const body: Record<string, unknown> = {
     model,
@@ -344,6 +351,9 @@ export async function streamToolAwareTurn({
       if (delta.content) {
         content += delta.content;
         onText?.(delta.content);
+      }
+      if (delta.reasoning) {
+        onReasoning?.(delta.reasoning);
       }
       if (delta.usage) {
         // The terminal usage-only chunk (empty choices). The provider emits

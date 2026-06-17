@@ -28,6 +28,13 @@ export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   /**
+   * Assistant turns only: the model's chain-of-thought / thinking text streamed
+   * ahead of (or interleaved with) its visible answer by reasoning models
+   * (OpenAI o-series, Claude w/ thinking, DeepSeek-R1, …). Rendered in a
+   * collapsible panel above the bubble; persisted so a reload keeps it.
+   */
+  reasoning?: string;
+  /**
    * Set on a user turn that activated a skill via /skill-name. Stored with the
    * transcript so the activation badge survives reloads; the injected skill
    * instructions are never persisted (only sent on the wire, see send()).
@@ -250,6 +257,16 @@ export function useChatStream(sessionId: string): UseChatStream {
               );
               return;
             }
+            if (event.type === "reasoning") {
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === assistantId
+                    ? { ...message, reasoning: (message.reasoning ?? "") + event.text }
+                    : message,
+                ),
+              );
+              return;
+            }
             // tool_call / tool_result / metadata / usage: fold into the assistant turn.
             setMessages((current) =>
               current.map((message) => {
@@ -373,6 +390,8 @@ async function readChatStream(
 
       if (parsed.type === "text" && typeof parsed.text === "string") {
         onEvent({ type: "text", text: parsed.text });
+      } else if (parsed.type === "reasoning" && typeof parsed.text === "string") {
+        onEvent({ type: "reasoning", text: parsed.text });
       } else if (parsed.type === "error" && typeof parsed.message === "string") {
         onEvent({ type: "error", message: parsed.message });
       } else if (parsed.type === "tool_call") {

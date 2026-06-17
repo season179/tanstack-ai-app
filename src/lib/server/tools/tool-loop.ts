@@ -67,6 +67,7 @@ type ToolResultDescriptor = {
 
 export type ToolLoopEvent =
   | { type: "text"; text: string }
+  | { type: "reasoning"; text: string }
   | { type: "tool_call"; call: ToolCallDescriptor }
   | { type: "tool_result"; result: ToolResultDescriptor }
   | { type: "usage"; usage: OpenRouterTurnUsage }
@@ -246,6 +247,7 @@ export async function runToolLoop({
         tools,
         signal,
         onText: (delta) => onEvent({ type: "text", text: delta }),
+        onReasoning: (delta) => onEvent({ type: "reasoning", text: delta }),
       });
 
       // Accumulate this round-trip's real usage (undefined if the provider

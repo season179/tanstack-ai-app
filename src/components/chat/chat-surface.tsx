@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useChatShell } from "~/components/chat/chat-shell-context";
 import { ModelPicker } from "~/components/chat/model-picker";
+import { ReasoningPanel } from "~/components/chat/reasoning-panel";
 import { ToolTracePanel } from "~/components/chat/tool-trace-panel";
 import { Button } from "~/components/ui/button";
 import { Markdown } from "~/components/ui/markdown";
@@ -180,6 +181,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
                     activatedSkill={message.activatedSkill}
                     content={message.content}
                     isStreaming={isAssistantActive}
+                    reasoning={message.reasoning}
                     sender={message.role}
                     tokenUsage={message.tokenUsage}
                     toolSteps={message.toolSteps}
@@ -330,6 +332,7 @@ function MessageRow({
   activatedSkill,
   content,
   isStreaming,
+  reasoning,
   sender,
   tokenUsage,
   toolSteps,
@@ -338,6 +341,7 @@ function MessageRow({
   activatedSkill?: string;
   content: string;
   isStreaming?: boolean;
+  reasoning?: string;
   sender: "user" | "assistant";
   tokenUsage?: import("~/lib/chat/tool-events").TurnTokenUsage;
   toolSteps?: import("~/lib/chat/tool-events").ToolStep[];
@@ -346,6 +350,7 @@ function MessageRow({
   const isUser = sender === "user";
   const hasToolActivity =
     !isUser && ((toolSteps && toolSteps.length > 0) || toolSearch !== undefined);
+  const hasReasoning = !isUser && typeof reasoning === "string" && reasoning.trim().length > 0;
   // Only surface real OpenRouter usage once the turn has stopped streaming
   // (and only if the provider actually returned one) so the caption never
   // flickers an empty "0 · 0 · 0 total" mid-stream.
@@ -356,6 +361,13 @@ function MessageRow({
 
   return (
     <div className={cn("flex flex-col gap-1.5", isUser ? "items-end" : "items-start")}>
+      {hasReasoning ? (
+        <ReasoningPanel
+          hasContent={content.trim().length > 0}
+          isStreaming={isStreaming}
+          reasoning={reasoning ?? ""}
+        />
+      ) : null}
       <MessageBubble
         activatedSkill={activatedSkill}
         content={content}

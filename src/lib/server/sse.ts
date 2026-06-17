@@ -8,7 +8,10 @@
  *   data: {"type":"error","message":"..."}\n\n
  *   data: [DONE]\n\n
  */
-export type ChatStreamEvent = { type: "text"; text: string } | { type: "error"; message: string };
+export type ChatStreamEvent =
+  | { type: "text"; text: string }
+  | { type: "reasoning"; text: string }
+  | { type: "error"; message: string };
 
 export type ChatStreamSink = (event: ChatStreamEvent) => void;
 
@@ -43,14 +46,18 @@ export async function pumpChatCompletion(
   signal?: AbortSignal,
   onUsage?: (usage: OpenAiUsage) => void,
 ): Promise<void> {
-  // Content-only view over the generic OpenAI chunk pump: any text delta is
-  // re-emitted as our minimal {type:"text"} event. Tool-call deltas are
-  // ignored here (the plain chat path never sends tools).
+  // Content-only view over the generic OpenAI chunk pump: text + reasoning
+  // deltas are re-emitted as our minimal {type:"text"}/{type:"reasoning"}
+  // events. Tool-call deltas are ignored here (the plain chat path never
+  // sends tools).
   await forEachOpenAiDelta(
     upstream,
     (delta) => {
       if (delta.content) {
         onEvent({ type: "text", text: delta.content });
+      }
+      if (delta.reasoning) {
+        onEvent({ type: "reasoning", text: delta.reasoning });
       }
       if (delta.usage) {
         onUsage?.(delta.usage);
@@ -87,6 +94,13 @@ export type OpenAiUsage = {
  */
 export type OpenAiDeltaChunk = {
   content?: string;
+  /**
+   * Chain-of-thought / thinking text streamed ahead of the visible answer by
+   * reasoning models (OpenAI o-series, Claude w/ thinking, DeepSeek-R1, …).
+   * OpenRouter normalizes this to `delta.reasoning`; some upstream providers
+   * still emit `delta.reasoning_content`, which we fold into the same field.
+   */
+  reasoning?: string;
   tool_calls?: Array<{
     index: number;
     id?: string;
@@ -185,13 +199,30 @@ function parseOpenAiDelta(payload: string): OpenAiDeltaChunk | null {
   }
 
   const choice = choices[0] as {
-    delta?: { content?: unknown; tool_calls?: unknown };
+    delta?: {
+      content?: unknown;
+      reasoning?: unknown;
+      reasoning_content?: unknown;
+      tool_calls?: unknown;
+    };
     finish_reason?: unknown;
   };
   const delta = choice.delta ?? {};
 
   if (typeof delta.content === "string" && delta.content.length > 0) {
     chunk.content = delta.content;
+  }
+
+  // Reasoning deltas: prefer OpenRouter's normalized `reasoning`, fall back to
+  // the raw `reasoning_content` some upstream providers still stream.
+  const reasoningSource =
+    typeof delta.reasoning === "string"
+      ? delta.reasoning
+      : typeof delta.reasoning_content === "string"
+        ? delta.reasoning_content
+        : null;
+  if (reasoningSource && reasoningSource.length > 0) {
+    chunk.reasoning = reasoningSource;
   }
 
   if (Array.isArray(delta.tool_calls)) {

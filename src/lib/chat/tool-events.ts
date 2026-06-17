@@ -84,6 +84,16 @@ export type UsageFrame = {
   usage: TurnTokenUsage;
 };
 
+/**
+ * A reasoning (chain-of-thought) delta from a reasoning model. These arrive
+ * ahead of / interleaved with the visible text answer; the client folds them
+ * into the assistant turn's `reasoning` field and renders a collapsible panel.
+ */
+export type ReasoningFrame = {
+  type: "reasoning";
+  text: string;
+};
+
 /** Category ids for the estimated input-token split bar. */
 export type TokenUsageBreakdownCategoryId = "systemPrompt" | "messages" | "tools";
 
@@ -131,7 +141,8 @@ export type ToolFrame =
   | ToolResultFrame
   | MetadataFrame
   | UsageFrame
-  | BreakdownFrame;
+  | BreakdownFrame
+  | ReasoningFrame;
 
 export function isToolFrame(value: { type?: unknown }): value is ToolFrame {
   return (
@@ -139,7 +150,8 @@ export function isToolFrame(value: { type?: unknown }): value is ToolFrame {
     value.type === "tool_result" ||
     value.type === "metadata" ||
     value.type === "usage" ||
-    value.type === "breakdown"
+    value.type === "breakdown" ||
+    value.type === "reasoning"
   );
 }
 
