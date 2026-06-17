@@ -3,6 +3,8 @@ import {
   ArrowDown,
   ArrowUp,
   CalendarClock,
+  Check,
+  Copy,
   RotateCcw,
   Square,
   Zap,
@@ -482,17 +484,72 @@ function MessageRow({
       {usageLine.length > 0 ? (
         <p className="px-1 text-[11px] tabular-nums text-muted-foreground/80">{usageLine}</p>
       ) : null}
-      {isLastAssistant && onRegenerate ? (
-        <button
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          onClick={onRegenerate}
-          type="button"
-        >
-          <RotateCcw aria-hidden="true" className="size-3" />
-          Regenerate
-        </button>
+      {!isUser && !isStreaming && content.trim().length > 0 ? (
+        <div className="flex items-center gap-0.5 px-1">
+          <MessageCopyButton content={content} />
+          {isLastAssistant && onRegenerate ? (
+            <button
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              onClick={onRegenerate}
+              type="button"
+            >
+              <RotateCcw aria-hidden="true" className="size-3" />
+              Regenerate
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Copy-an-assistant-reply affordance. Writes the raw markdown content to the
+ * clipboard (secure-context / localhost only — navigator.clipboard is gated to
+ * https or localhost, which covers dev and the prod server). Flashes a
+ * "Copied" confirmation for ~1.5s, mirroring the universal chat-app pattern.
+ * Fails soft (no-op) when the clipboard API is unavailable.
+ */
+function MessageCopyButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    },
+    [],
+  );
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard unavailable (non-secure context / permissions) — fail soft.
+    }
+  }
+
+  return (
+    <button
+      aria-label={copied ? "Copied" : "Copy message"}
+      className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      onClick={handleCopy}
+      type="button"
+    >
+      {copied ? (
+        <Check aria-hidden="true" className="size-3" />
+      ) : (
+        <Copy aria-hidden="true" className="size-3" />
+      )}
+      {copied ? "Copied" : "Copy"}
+    </button>
   );
 }
 
