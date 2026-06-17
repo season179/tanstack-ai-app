@@ -77,9 +77,14 @@ for tool_call/tool_result/usage/breakdown/metadata/trace that protect the UI
 against malformed payloads), the OpenRouter client's pure helpers (the
 `compactUsage`/`sumUsage` per-turn usage compaction + aggregation that feed
 the usage frames, and the `requireEnv`/`MissingEnvironmentVariableError`/
-`OpenRouterError` env + error guards), the tool loop's
-`sentToolCountForMode` (the per-exposure-mode schema count that drives the
-`x-total-tools` verification header across search/all/none + skill-extras),
+`OpenRouterError` env + error guards), the tool loop's `sentToolCountForMode` (the per-exposure-mode schema count that drives the
+`x-total-tools` verification header across search/all/none + skill-extras) and
+the `runToolLoop` orchestrator itself (mocked network boundary driving the
+real bridge executors + central registry: single-turn termination, bridge
+search/describe/call dispatch with trace events, all-mode registry dispatch,
+extra skill-tool routing, the `MAX_LOOP_ITERATIONS=6` cap, abort-before-first-
+iteration, cross-round-trip usage aggregation, the always-emitted final
+metadata, and system-prompt/tools/tool-result message threading),
 and the localStorage-backed persistence stores — the chat sessions store
 (title provenance auto/generated/manual, AI-title upgrade guards, newest-
 updated-first ordering + `touchSession` re-float, per-session message
