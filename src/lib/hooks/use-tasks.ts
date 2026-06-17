@@ -39,8 +39,10 @@ export type UseTasks = {
 export function useTasks(): UseTasks {
   const tasks = useSyncExternalStore(subscribeTasks, getTasksSnapshot, getTasksSnapshot);
 
-  // Boot the scheduler exactly once per tab — fires run on a heartbeat as long
-  // as the app is mounted somewhere.
+  // Boot the scheduler exactly once per tab. The canonical boot now lives in
+  // the root AppShell (so tasks fire on every route), but this call is kept as
+  // an idempotent belt-and-suspenders in case the board is ever rendered
+  // outside the shell.
   useEffect(() => {
     startTaskScheduler();
   }, []);

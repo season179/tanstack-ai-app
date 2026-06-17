@@ -7,6 +7,7 @@ import {
   useAppShell,
 } from "~/components/app-shell-context";
 import { AppSidebar } from "~/components/app-sidebar";
+import { startTaskScheduler } from "~/lib/tasks/scheduler";
 
 type SidebarStyle = CSSProperties & { "--sidebar-width": string; "--sidebar-rail": string };
 
@@ -34,6 +35,16 @@ function AppShellFrame({ children }: { children: ReactNode }) {
       closeSidebar();
     }
   }, [closeSidebar]);
+
+  // Boot the scheduled-task ticker from the app root (always mounted) so due
+  // and recurring tasks fire on EVERY route, not just /tasks. Without this, a
+  // reload that lands on /chat or /skills would never boot the ticker and
+  // scheduled fires would silently stop until /tasks is visited.
+  // startTaskScheduler is idempotent (guards on a module-level timer +
+  // typeof window), so the /tasks route's own boot is a harmless redundancy.
+  useEffect(() => {
+    startTaskScheduler();
+  }, []);
 
   return (
     <div
