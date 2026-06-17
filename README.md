@@ -26,6 +26,19 @@ SDK's `ToolLoopAgent` and `useChat` with hand-rolled equivalents.
    `OPENROUTER_DEFAULT_MODEL`.
 4. `pnpm dev` and open http://localhost:3000
 
+## Production
+
+```bash
+pnpm build
+pnpm start   # serves .output/server/index.mjs on :3000
+```
+
+`pnpm start` runs the built Nitro server and auto-loads `.env` via Node 24's
+built-in `--env-file-if-exists=.env` flag (no `dotenv` dependency). The file is
+optional — if absent, the server boots and the chat routes fail soft (empty
+model list, no default) just like dev without a key. To override any value,
+export it in the shell: shell env wins over `.env`.
+
 ## Verification
 
 ```bash

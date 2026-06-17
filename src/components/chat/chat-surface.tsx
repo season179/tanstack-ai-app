@@ -234,9 +234,11 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
         >
           <div className={`${SHELL_COLUMN} py-6 sm:py-10`}>
             {messages.length === 0 ? (
-              <div className="mx-auto max-w-md py-16 text-center">
-                <p className="text-lg font-semibold text-foreground">How can I help?</p>
-                <p className="mt-2 text-sm text-muted-foreground">
+              <div className="mx-auto flex min-h-[60vh] max-w-xl flex-1 flex-col items-center justify-center text-center">
+                <h1 className="text-2xl font-semibold tracking-normal text-foreground">
+                  How can I help?
+                </h1>
+                <p className="mt-3 max-w-[44ch] text-sm leading-6 text-muted-foreground">
                   Ask anything. Responses stream live from OpenRouter.
                 </p>
               </div>
