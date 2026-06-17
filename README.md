@@ -64,7 +64,12 @@ the header's input-token breakdown, the sum-vs-max aggregation across
 round-trips), the central tool registry (`createToolRegistry`'s duplicate-name
 and missing-handler wiring guards, the `Object.hasOwn` Object.prototype
 shadowing protection, provider-order preservation, and the singleton's
-200-tool dispatch contract), the OpenAI/OpenRouter SSE chunk parser (covering the
+200-tool dispatch contract), the 200-tool mock catalog and deterministic mock
+executor (`mockToolCount` checksum, no-duplicate-name integrity, every spec's
+`required`-references-a-declared-property invariant, the OpenRouter function-
+schema builders, `getMockToolSpec` name lookup, and `executeMockTool`'s output
+shape + record-label derivation across first-string-wins / spec.title fallback
+/ empty-input cases), the OpenAI/OpenRouter SSE chunk parser (covering the
 usage-capture and tool-call fragment reassembly regressions documented in
 the iteration log), and the client-side `/api/chat` SSE reader (the
 `readChatStream` line-buffered frame pump plus the six wire-frame validators
