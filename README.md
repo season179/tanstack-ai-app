@@ -51,8 +51,10 @@ pnpm build
 `pnpm test` runs the Vitest suite over the pure domain logic that carries the
 most risk if silently regressed: the chat-message reconciliation helpers, the
 skill `/skill-name` parsers, validation rules, and activation wire-format
-(`<skill_content>` XML block builder + escape semantics), the scheduler's cron
-projection (`canFire` / `projectNextFire`), the scheduled-jobs board display
+(`<skill_content>` XML block builder + escape semantics), the server-side skill
+tools (`skill_search` / `skill_get_content` dispatch, the tier-1 catalog block,
+token-overlap ranking with exact-name weighting, and the tier-2/tier-3 content
+formatting), the scheduler's cron projection (`canFire` / `projectNextFire`), the scheduled-jobs board display
 formatters (run duration / result / status classes), the tool-events formatters
 + tool-step pairing, the deferred tool-search bridge (BM25 + substring fallback
 + the savings metadata), the token-usage allocation math (char→token
