@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { canFire, projectNextFire } from "~/lib/tasks/scheduler";
-import type { ScheduledTask } from "~/lib/tasks/types";
+import { buildOverview, canFire, projectNextFire } from "~/lib/tasks/scheduler";
+import type { ScheduledTask, ScheduledTaskRun } from "~/lib/tasks/types";
 
 const BASE = {
   id: "t1",
@@ -106,5 +106,150 @@ describe("projectNextFire", () => {
 
   it("projects null for a cron task with no cron expression", () => {
     expect(projectNextFire(cronTask({ cron: null }))).toBeNull();
+  });
+});
+
+// --- buildOverview fixtures ----------------------------------------------
+// `now` is fixed at 2026-06-18T12:00:00Z so the once-task's 12:00 runAt is
+// exactly due (== nowMs) — the boundary case buildOverview must exclude from
+// upcoming ("about to become a run").
+const NOW = new Date("2026-06-18T12:00:00.000Z");
+const NOW_MS = NOW.getTime();
+
+const RUN_BASE = {
+  taskId: "t1",
+  taskTitle: "T",
+  scheduleType: "once" as const,
+  payloadKind: "instruction" as const,
+  homeSessionId: null,
+};
+
+function run(overrides: Partial<ScheduledTaskRun>): ScheduledTaskRun {
+  return {
+    id: "r1",
+    status: "completed",
+    output: null,
+    error: null,
+    startedAt: "2026-06-18T11:00:00.000Z",
+    completedAt: "2026-06-18T11:00:30.000Z",
+    ...RUN_BASE,
+    ...overrides,
+  };
+}
+
+describe("buildOverview", () => {
+  it("returns empty sections for empty inputs", () => {
+    expect(buildOverview([], [], NOW)).toEqual({
+      running: [],
+      upcoming: [],
+      past: [],
+    });
+  });
+
+  it("partitions runs: status 'running' → running, all others → past", () => {
+    const runs = [
+      run({ id: "r1", status: "running" }),
+      run({ id: "r2", status: "completed" }),
+      run({ id: "r3", status: "failed" }),
+      run({ id: "r4", status: "skipped" }),
+    ];
+    const overview = buildOverview([], runs, NOW);
+    expect(overview.running.map((r) => r.id)).toEqual(["r1"]);
+    expect(overview.past.map((r) => r.id)).toEqual(["r2", "r3", "r4"]);
+  });
+
+  it("caps the running section at 50 runs", () => {
+    const runs = Array.from({ length: 60 }, (_, i) => run({ id: `r${i}`, status: "running" }));
+    expect(buildOverview([], runs, NOW).running).toHaveLength(50);
+  });
+
+  it("caps the past section at 100 runs", () => {
+    const runs = Array.from({ length: 150 }, (_, i) => run({ id: `r${i}`, status: "completed" }));
+    expect(buildOverview([], runs, NOW).past).toHaveLength(100);
+  });
+
+  it("excludes disabled tasks from upcoming (the isEnabled gate)", () => {
+    const tasks = [
+      cronTask({
+        id: "t-enabled",
+        // next fire is tomorrow 09:00 (clearly in the future)
+        createdAt: "2026-06-18T10:00:00.000Z",
+        lastFiredAt: "2026-06-18T09:00:00.000Z",
+      }),
+      cronTask({
+        id: "t-disabled",
+        isEnabled: false,
+        createdAt: "2026-06-18T10:00:00.000Z",
+        lastFiredAt: "2026-06-18T09:00:00.000Z",
+      }),
+    ];
+    const overview = buildOverview(tasks, [], NOW);
+    expect(overview.upcoming.map((job) => job.taskId)).toEqual(["t-enabled"]);
+  });
+
+  it("excludes a task whose projected fire is null (consumed one-off / no cron)", () => {
+    const tasks = [
+      // one-off that already fired → projectNextFire is null
+      onceTask({ id: "consumed", lastFiredAt: "2026-06-18T11:00:00.000Z" }),
+      // cron task with no cron → projectNextFire is null
+      cronTask({ id: "no-cron", cron: null }),
+    ];
+    expect(buildOverview(tasks, [], NOW).upcoming).toEqual([]);
+  });
+
+  it("excludes a task whose fire is already due (fire time <= now)", () => {
+    // The default once-task runAt (12:00) is exactly == NOW_MS, so it must be
+    // excluded — it is about to be promoted to a run by tickTasks.
+    const tasks = [
+      onceTask({ id: "due-now", runAt: new Date(NOW_MS).toISOString() }),
+      // A future-dated cron task is still listed for contrast.
+      cronTask({
+        id: "future",
+        createdAt: "2026-06-18T10:00:00.000Z",
+        lastFiredAt: "2026-06-18T09:00:00.000Z",
+      }),
+    ];
+    const overview = buildOverview(tasks, [], NOW);
+    expect(overview.upcoming.map((job) => job.taskId)).toEqual(["future"]);
+  });
+
+  it("sorts upcoming by nextRunAt ascending (ISO string localeCompare)", () => {
+    const tasks = [
+      // fires at 09:00 tomorrow
+      cronTask({
+        id: "later",
+        createdAt: "2026-06-18T10:00:00.000Z",
+        lastFiredAt: "2026-06-18T09:00:00.000Z",
+      }),
+      // one-off 1 minute from now (earlier)
+      onceTask({ id: "sooner", runAt: new Date(NOW_MS + 60_000).toISOString() }),
+    ];
+    const overview = buildOverview(tasks, [], NOW);
+    expect(overview.upcoming.map((job) => job.taskId)).toEqual(["sooner", "later"]);
+  });
+
+  it("carries the task's payload/cron/timezone/homeSessionId onto the upcoming job", () => {
+    // Use UTC timezone so the projected next fire is a stable, predictable
+    // value (09:00 UTC tomorrow) rather than a tz-shifted one — the assertion
+    // here is about the carried fields, not cron timezone math.
+    const task = cronTask({
+      id: "t-rich",
+      payload: { kind: "instruction", instruction: "do the thing" },
+      timezone: "UTC",
+      homeSessionId: "session-42",
+      createdAt: "2026-06-18T10:00:00.000Z",
+      lastFiredAt: "2026-06-18T09:00:00.000Z",
+    });
+    const [job] = buildOverview([task], [], NOW).upcoming;
+    expect(job).toMatchObject({
+      taskId: "t-rich",
+      taskTitle: task.title,
+      scheduleType: "cron",
+      payload: { kind: "instruction", instruction: "do the thing" },
+      cron: task.cron,
+      timezone: "UTC",
+      homeSessionId: "session-42",
+    });
+    expect(job.nextRunAt).toBe("2026-06-19T09:00:00.000Z");
   });
 });
