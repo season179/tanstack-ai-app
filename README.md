@@ -97,7 +97,14 @@ jsdom environment (per-file `@vitest-environment jsdom`) so the stores'
 `window.localStorage` + `crypto.randomUUID` + cross-tab `storage`-event
 paths are exercised end-to-end, with a `vi.resetModules()` + dynamic
 re-import per test to reset the module-level caches/listeners and a
-deterministic fake `Date` clock for ordering-sensitive assertions.
+deterministic fake `Date` clock for ordering-sensitive assertions), the
+ubiquitous small pure helpers — the `cn`/`isUuid`/`UUID_PATTERN` utilities
+(clsx+tailwind-merge class composition with conflict resolution, the
+anchored case-insensitive UUID validator driving the chat route's id check)
+and the chat busy-signal pub/sub (the no-op-on-identical-value guard,
+change-driven notification, multi-subscriber fan-out, and unsubscribe
+semantics that let the root-level sidebar mirror the per-session provider's
+streaming flag and apply the reference's three chatBusy guards).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
