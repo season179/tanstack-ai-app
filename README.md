@@ -113,8 +113,17 @@ folding of reasoning / tool_call / tool_result / usage / breakdown / metadata
 onto the assistant turn, prior-transcript history threading on the wire, the
 whitespace-instruction / missing-home-session / fetch-reject / non-ok-JSON /
 non-ok-status / stream-error-frame failure modes, per-run-id idempotency,
-distinct-run independence, and the `touchSession` sidebar re-float), plus — via a
-React Testing Library `renderHook` harness (jsdom + a mocked global `fetch`
+distinct-run independence, and the `touchSession` sidebar re-float), and the
+no-AI-SDK session titler `generateSessionTitle` (a mocked-global-`fetch` harness
+controlling `process.env`, covering the missing-API-key / whitespace-key /
+missing-model env guards, the empty/whitespace-input guard, the fetch-reject /
+non-ok-status / malformed-JSON / missing-choices / empty-choices / non-string-
+content failure modes, the request construction (OpenRouter endpoint, Bearer
+auth, JSON content-type, `OPENROUTER_TITLE_MODEL` precedence over
+`OPENROUTER_DEFAULT_MODEL`, whitespace trimming, the 1024-token cap, the system
+prompt, the user-message turn labeling, and the 2000-char-per-source	runcation), and the title normalization (strip wrapping quotes/backticks,
+collapse whitespace, drop trailing periods, cap at 60 chars, empty→null),
+plus — via a React Testing Library `renderHook` harness (jsdom + a mocked global `fetch`
 scripting `/api/chat` SSE bodies) — the React hooks layer that was the last
 untested surface: `useChatStream` (the client chat runtime: send happy path
 with transcript persistence + first-turn AI titling firing once, the empty /
