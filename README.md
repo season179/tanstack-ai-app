@@ -137,7 +137,19 @@ usage / breakdown / metadata folding onto one assistant turn, and
 including the null-removal and storage-throw fail-soft paths, and the lazy
 `ensureLoaded` fetch with idempotency + non-ok soft-fail + reject-then-retry
 reset + loading flag), and `useHydrated` (the post-mount true + rerender /
-remount stability).
+remount stability), and — extending that React Testing Library harness from
+`renderHook` to `render`/`screen`/`fireEvent` — the interactive UI components,
+starting with the `ModelPicker` (the composer's searchable, keyboard-navigable,
+lazy-loading model selector: the trigger label derivation across value /
+default-model / catalog-display-name / shortName fallbacks, the popover
+open/close + `onOpen` lazy-load callback, the prefix-then-substring
+ranking filter + case-insensitivity, the `MAX_RENDERED` cap + the "Showing N
+of M" refine hint, the empty-catalog default-model fallback row, the loading
+state, the keyboard navigation (ArrowDown/ArrowUp wrap + Enter-to-select +
+Escape-to-close + no-op on an empty result set), the mouse hover-re-highlight
++ click-to-select, the outside-click dismiss, the active-descendant
+`aria-selected` semantics vs the chosen-value Check-icon distinction, and
+the `K`-suffixed context-length formatting).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
