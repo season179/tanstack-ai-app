@@ -11,15 +11,36 @@ import {
   resolveChatModel,
   streamChatCompletion,
 } from "~/lib/server/openrouter";
-import { pumpChatCompletion, SSE_DONE, SSE_HEADERS, sseData } from "~/lib/server/sse";
+import { pumpChatCompletion, SSE_DONE, sseData } from "~/lib/server/sse";
+import { mockToolCount } from "~/lib/server/tools/mock-tools";
 import {
   estimateRequestTokenUsage,
   resolveToolExposureMode,
   type TokenUsageBreakdown,
+  type ToolExposureMode,
   toTokenUsageBreakdown,
 } from "~/lib/server/tools/token-usage";
-import { runToolLoop } from "~/lib/server/tools/tool-loop";
+import { runToolLoop, sentToolCountForMode } from "~/lib/server/tools/tool-loop";
 import { isUuid } from "~/lib/utils";
+
+/**
+ * Standard SSE response headers plus the reference's documented `/api/chat`
+ * verification contract — `x-openrouter-model`, `x-mock-tools`, `x-total-tools`,
+ * and `x-tool-exposure-mode` — so the active tool-routing configuration is
+ * inspectable on every chat response (curl -i or the Network tab) without
+ * waiting for the stream to complete.
+ */
+function chatStreamHeaders(model: string, exposureMode: ToolExposureMode): HeadersInit {
+  return {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "x-openrouter-model": model,
+    "x-mock-tools": String(mockToolCount),
+    "x-total-tools": String(sentToolCountForMode(exposureMode)),
+    "x-tool-exposure-mode": exposureMode,
+  };
+}
 
 export const Route = createFileRoute("/api/chat")({
   server: {
@@ -127,7 +148,7 @@ async function handleChat(request: Request): Promise<Response> {
   // deferred tool-search loop, emitting text + tool_call/tool_result/metadata
   // frames over the same SSE channel.
   if (exposureMode === "none") {
-    return streamPlainChat({ apiKey, model, runMessages, request });
+    return streamPlainChat({ apiKey, model, runMessages, request, exposureMode });
   }
 
   return streamToolChat({ apiKey, model, messages, exposureMode, request });
@@ -139,11 +160,13 @@ async function streamPlainChat({
   model,
   runMessages,
   request,
+  exposureMode,
 }: {
   apiKey: string;
   model: string;
   runMessages: ChatMessage[];
   request: Request;
+  exposureMode: ToolExposureMode;
 }): Promise<Response> {
   let upstream: Response;
   try {
@@ -223,7 +246,7 @@ async function streamPlainChat({
     },
   });
 
-  return new Response(stream, { headers: SSE_HEADERS });
+  return new Response(stream, { headers: chatStreamHeaders(model, exposureMode) });
 }
 
 /**
@@ -305,7 +328,7 @@ async function streamToolChat({
     },
   });
 
-  return new Response(stream, { headers: SSE_HEADERS });
+  return new Response(stream, { headers: chatStreamHeaders(model, exposureMode) });
 }
 
 /** Map a pre-stream OpenRouter error to the right HTTP response. */

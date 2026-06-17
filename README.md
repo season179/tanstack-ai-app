@@ -34,7 +34,36 @@ pnpm typecheck
 pnpm build
 ```
 
+The `/api/chat` route drives the hand-rolled tool loop directly over
+OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
+it exposes only the local BM25 tool-search bridge over 200 mock-backed tools,
+and returns `x-openrouter-model`, `x-mock-tools`, `x-total-tools`, and
+`x-tool-exposure-mode` response headers on every chat response for local
+verification — e.g. `curl -i -N -X POST http://localhost:3000/api/chat ...`.
+Set `TOOL_EXPOSURE_MODE=all` to send every tool schema instead (the token-cost
+baseline), or `none`/`off` to disable the tool loop entirely.
+
 ## Status
 
-Scaffold + design system + app chrome. Streaming chat, tool search, and token
-instrumentation land in subsequent iterations.
+Feature-complete with the reference's chat-surface thesis:
+
+- App chrome (collapsible sidebar, header, /, /tasks, /skills, /chat/$sessionId)
+  on the OKLCH design system.
+- Streaming chat (no AI SDK): OpenRouter over a self-owned SSE protocol, with
+  multi-session localStorage persistence, inline rename, smart auto-scroll,
+  retry/regenerate, and a searchable model picker.
+- Deferred tool-search bridge (BM25 over 200 mock tools) driven by a
+  hand-rolled OpenRouter tool loop (search → describe → call), surfaced inline
+  as a collapsible tool trace with deferred-vs-all token savings.
+- Real per-turn + session-cumulative OpenRouter token usage, an estimated
+  input-token split (system / messages / tools), and reasoning (chain-of-
+  thought) display for reasoning models.
+- Skills (localStorage CRUD + editor with references) activated either by a
+  `/skill-name` composer command or, in the reference, by agent-driven
+  `skill_search` / `skill_get_content` tools.
+- Scheduled tasks (localStorage + a client-side cron ticker) with a live
+  Running now / Up next / Past runs board and a create dialog.
+
+Faithful within the no-backend constraint: skills and scheduled tasks are
+browser-local (no Postgres / pg-boss worker), so the reference's server-side
+scheduled-task-runs-into-a-session pattern is intentionally out of scope.

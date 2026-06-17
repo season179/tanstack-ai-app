@@ -168,6 +168,23 @@ const ALL_TOOLS: OpenRouterFunctionTool[] = toolRegistry.specs.map(
 );
 
 /**
+ * Number of tool schemas sent to the model for a given exposure mode: the
+ * three bridge tools in `search` mode, every catalog tool in `all` mode, and
+ * none in `none` mode (plain streaming). The chat route uses this to populate
+ * the `x-total-tools` verification header (the reference's documented
+ * /api/chat verification contract).
+ */
+export function sentToolCountForMode(mode: ToolExposureMode): number {
+  if (mode === "search") {
+    return BRIDGE_TOOLS.length;
+  }
+  if (mode === "all") {
+    return ALL_TOOLS.length;
+  }
+  return 0;
+}
+
+/**
  * Drive the deferred tool-search loop to completion, streaming events to
  * `onEvent`. Always emits a final `metadata` event (even on early exit) so the
  * UI can render the deferred-vs-all token savings for the turn.
