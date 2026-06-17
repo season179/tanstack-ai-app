@@ -61,7 +61,10 @@ formatters (run duration / result / status classes), the tool-events formatters
 + the savings metadata), the token-usage allocation math (char→token
 estimation, the largest-remainder category + per-tool-schema split driving
 the header's input-token breakdown, the sum-vs-max aggregation across
-round-trips), the OpenAI/OpenRouter SSE chunk parser (covering the
+round-trips), the central tool registry (`createToolRegistry`'s duplicate-name
+and missing-handler wiring guards, the `Object.hasOwn` Object.prototype
+shadowing protection, provider-order preservation, and the singleton's
+200-tool dispatch contract), the OpenAI/OpenRouter SSE chunk parser (covering the
 usage-capture and tool-call fragment reassembly regressions documented in
 the iteration log), and the client-side `/api/chat` SSE reader (the
 `readChatStream` line-buffered frame pump plus the six wire-frame validators
