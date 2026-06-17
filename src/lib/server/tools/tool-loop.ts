@@ -18,10 +18,13 @@
  */
 
 import {
+  compactUsage,
   type OpenRouterFunctionTool,
   type OpenRouterMessage,
   type OpenRouterToolCall,
+  type OpenRouterTurnUsage,
   streamToolAwareTurn,
+  sumUsage,
 } from "../openrouter";
 import { getMockToolFunctionSchema, type RealisticToolInput } from "./mock-tools";
 import { NO_TOOL_CONTEXT, type ToolExecutionContext, toolRegistry } from "./registry";
@@ -64,6 +67,7 @@ export type ToolLoopEvent =
   | { type: "text"; text: string }
   | { type: "tool_call"; call: ToolCallDescriptor }
   | { type: "tool_result"; result: ToolResultDescriptor }
+  | { type: "usage"; usage: OpenRouterTurnUsage }
   | { type: "metadata"; metadata: ToolSearchMetadata };
 
 export type ToolLoopOptions = {
@@ -185,6 +189,17 @@ export async function runToolLoop({
   const trace: ToolSearchTraceEvent[] = [];
   const requestEstimates: RequestTokenEstimate[] = [];
   const toolSchemaChars = JSON.stringify(tools).length;
+  // Real OpenRouter usage summed across every round-trip in the loop. The user
+  // sees ONE assistant reply that may have cost N upstream requests (search →
+  // describe → call → final answer), so totals are the meaningful number —
+  // not any single request's slice.
+  let usage: OpenRouterTurnUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    reasoningTokens: 0,
+    cachedInputTokens: 0,
+  };
 
   // Prepend the tool-aware system prompt (the caller's system message, if any,
   // is preserved after it so skill/scheduler prompts can still ship later).
@@ -221,6 +236,12 @@ export async function runToolLoop({
         onText: (delta) => onEvent({ type: "text", text: delta }),
       });
 
+      // Accumulate this round-trip's real usage (undefined if the provider
+      // omitted it or the request aborted before the terminal chunk).
+      if (turn.usage) {
+        usage = sumUsage(usage, compactUsage(turn.usage));
+      }
+
       // No tool calls => this was the final text answer. Done.
       if (turn.toolCalls.length === 0) {
         break;
@@ -254,6 +275,9 @@ export async function runToolLoop({
       }
     }
   } finally {
+    // Emit one aggregated usage frame per turn (zeros if the provider never
+    // sent usage, e.g. an aborted run), then the deferred-vs-all metadata.
+    onEvent({ type: "usage", usage });
     emitMetadata();
   }
 }

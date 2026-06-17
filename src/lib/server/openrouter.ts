@@ -9,7 +9,7 @@
  *    surfaces OpenRouter errors as structured failures.
  */
 
-import { forEachOpenAiDelta } from "./sse";
+import { forEachOpenAiDelta, type OpenAiUsage } from "./sse";
 
 const CHAT_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 const MODELS_USER_ENDPOINT = "https://openrouter.ai/api/v1/models/user";
@@ -76,6 +76,45 @@ export class MissingEnvironmentVariableError extends Error {
     super(`${variableName} is required before chat requests can be sent.`);
     this.name = "MissingEnvironmentVariableError";
   }
+}
+
+/**
+ * The client-facing per-turn usage shape (compacted from OpenRouter's raw
+ * OpenAI usage object). Mirrors the reference's TokenUsage minus AI-SDK types;
+ * the SSE wire frame writes these as camelCase keys so the client parser is
+ * symmetric. Empty for turns that produced no usage (e.g. an aborted reply).
+ */
+export type OpenRouterTurnUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  reasoningTokens: number;
+  cachedInputTokens: number;
+};
+
+/**
+ * Compact OpenRouter's raw usage into the client-facing shape, defaulting
+ * every field to 0. Aggregated across the tool loop by summing per round-trip.
+ */
+export function compactUsage(usage: OpenAiUsage | undefined | null): OpenRouterTurnUsage {
+  return {
+    inputTokens: usage?.promptTokens ?? 0,
+    outputTokens: usage?.completionTokens ?? 0,
+    totalTokens: usage?.totalTokens ?? 0,
+    reasoningTokens: usage?.reasoningTokens ?? 0,
+    cachedInputTokens: usage?.cachedPromptTokens ?? 0,
+  };
+}
+
+/** Sum two per-turn usage records (used to accumulate across loop round-trips). */
+export function sumUsage(acc: OpenRouterTurnUsage, add: OpenRouterTurnUsage): OpenRouterTurnUsage {
+  return {
+    inputTokens: acc.inputTokens + add.inputTokens,
+    outputTokens: acc.outputTokens + add.outputTokens,
+    totalTokens: acc.totalTokens + add.totalTokens,
+    reasoningTokens: acc.reasoningTokens + add.reasoningTokens,
+    cachedInputTokens: acc.cachedInputTokens + add.cachedInputTokens,
+  };
 }
 
 /** Thrown when OpenRouter returns a non-2xx streaming or catalog response. */
@@ -187,6 +226,12 @@ export type ToolAwareTurnResult = {
   toolCalls: OpenRouterToolCall[];
   /** OpenAI finish reason: "tool_calls", "stop", "length", etc. */
   finishReason: string | null;
+  /**
+   * Real OpenRouter usage from this round-trip's terminal chunk (raw shape,
+   * pre-compact). Undefined if the provider omitted usage (non-streaming
+   * fallback, abort before the terminal chunk, etc.).
+   */
+  usage?: OpenAiUsage;
 };
 
 export type StreamToolAwareTurnOptions = {
@@ -216,11 +261,15 @@ export async function streamChatCompletion({
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      // Optional but recommended by OpenRouter for ranking + attribution.
       "HTTP-Referer": "http://localhost:3000",
       "X-Title": "TanStack AI App",
     },
-    body: JSON.stringify({ model, messages, stream: true }),
+    body: JSON.stringify({
+      model,
+      messages,
+      stream: true,
+      stream_options: { include_usage: true },
+    }),
     signal,
   });
 
@@ -253,7 +302,12 @@ export async function streamToolAwareTurn({
   signal,
   onText,
 }: StreamToolAwareTurnOptions): Promise<ToolAwareTurnResult> {
-  const body: Record<string, unknown> = { model, messages, stream: true };
+  const body: Record<string, unknown> = {
+    model,
+    messages,
+    stream: true,
+    stream_options: { include_usage: true },
+  };
   if (tools && tools.length > 0) {
     body.tools = tools;
     body.tool_choice = "auto";
@@ -281,6 +335,7 @@ export async function streamToolAwareTurn({
 
   let content = "";
   let finishReason: string | null = null;
+  let usage: OpenAiUsage | undefined;
   const callByIndex = new Map<number, { id?: string; name?: string; arguments: string }>();
 
   await forEachOpenAiDelta(
@@ -289,6 +344,11 @@ export async function streamToolAwareTurn({
       if (delta.content) {
         content += delta.content;
         onText?.(delta.content);
+      }
+      if (delta.usage) {
+        // The terminal usage-only chunk (empty choices). The provider emits
+        // at most one per round-trip; keep the latest in case of duplicates.
+        usage = delta.usage;
       }
       if (delta.tool_calls) {
         for (const call of delta.tool_calls) {
@@ -321,7 +381,7 @@ export async function streamToolAwareTurn({
     }))
     .filter((call) => call.function.name.length > 0);
 
-  return { content, toolCalls, finishReason };
+  return { content, toolCalls, finishReason, usage };
 }
 
 async function readErrorDetail(response: Response): Promise<string | null> {

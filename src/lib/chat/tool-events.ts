@@ -48,6 +48,20 @@ export type ToolSearchSummary = {
   callCount: number;
 };
 
+/**
+ * Real per-turn token usage compacted from OpenRouter's terminal usage chunk.
+ * The tool loop sums it across all its round-trips (the user sees one reply
+ * that may have cost several upstream requests); the plain path sends one.
+ * All fields default to 0 so a turn rendered before/without usage still parses.
+ */
+export type TurnTokenUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  reasoningTokens: number;
+  cachedInputTokens: number;
+};
+
 /** The three non-text frame shapes read off the SSE channel. */
 export type ToolCallFrame = {
   type: "tool_call";
@@ -64,11 +78,22 @@ export type MetadataFrame = {
   metadata: ToolSearchSummary;
 };
 
+/** A usage frame from the server, carrying the per-turn OpenRouter totals. */
+export type UsageFrame = {
+  type: "usage";
+  usage: TurnTokenUsage;
+};
+
 /** The union of frame types the chat stream parser may now hand us. */
-export type ToolFrame = ToolCallFrame | ToolResultFrame | MetadataFrame;
+export type ToolFrame = ToolCallFrame | ToolResultFrame | MetadataFrame | UsageFrame;
 
 export function isToolFrame(value: { type?: unknown }): value is ToolFrame {
-  return value.type === "tool_call" || value.type === "tool_result" || value.type === "metadata";
+  return (
+    value.type === "tool_call" ||
+    value.type === "tool_result" ||
+    value.type === "metadata" ||
+    value.type === "usage"
+  );
 }
 
 /**
@@ -190,6 +215,41 @@ export function truncateForPreview(text: string, max = 140): string {
     return oneLine;
   }
   return `${oneLine.slice(0, max - 1)}…`;
+}
+
+/** A usage record with every field at 0 is the "provider omitted usage" shape. */
+export function isUsageEmpty(usage: TurnTokenUsage): boolean {
+  return (
+    usage.totalTokens === 0 &&
+    usage.inputTokens === 0 &&
+    usage.outputTokens === 0 &&
+    usage.reasoningTokens === 0 &&
+    usage.cachedInputTokens === 0
+  );
+}
+
+/**
+ * Compact inline label for one assistant turn's token usage, e.g.
+ *   "↑ 1,234 · ↓ 567 · 1,801 total" (with "· cached 42" and "· reasoning 88"
+ *    appended when those buckets were non-zero). Returns "" for an empty
+ *    usage record so the UI can gate the caption on truthiness.
+ */
+export function formatUsageLine(usage: TurnTokenUsage): string {
+  if (isUsageEmpty(usage)) {
+    return "";
+  }
+  const parts = [
+    `↑ ${formatTokenCount(usage.inputTokens)}`,
+    `↓ ${formatTokenCount(usage.outputTokens)}`,
+    `${formatTokenCount(usage.totalTokens)} total`,
+  ];
+  if (usage.cachedInputTokens > 0) {
+    parts.push(`cached ${formatTokenCount(usage.cachedInputTokens)}`);
+  }
+  if (usage.reasoningTokens > 0) {
+    parts.push(`reasoning ${formatTokenCount(usage.reasoningTokens)}`);
+  }
+  return parts.join(" · ");
 }
 
 /** Coerce a tool_result's `output` (already a model-facing string) for display. */

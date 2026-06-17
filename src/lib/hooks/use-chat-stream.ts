@@ -15,6 +15,8 @@ import {
   type ToolResultFrame,
   type ToolSearchSummary,
   type ToolStep,
+  type TurnTokenUsage,
+  type UsageFrame,
 } from "~/lib/chat/tool-events";
 import { buildActivatedSkillContent } from "~/lib/skills/activation";
 import type { Skill } from "~/lib/skills/skills-store";
@@ -40,6 +42,13 @@ export type ChatMessage = {
    * a final metadata frame. Surfaced under the bubble; persisted with the turn.
    */
   toolSearch?: ToolSearchSummary;
+  /**
+   * Assistant turns only: real OpenRouter token usage for this turn. For the
+   * tool loop this is the SUM across every round-trip (search → describe → call
+   * → final answer); for the plain path it's the single upstream request's
+   * usage. Persisted so a reload keeps the per-turn token readout.
+   */
+  tokenUsage?: TurnTokenUsage;
 };
 
 export type ChatStatus = "ready" | "submitted" | "streaming" | "error";
@@ -233,7 +242,7 @@ export function useChatStream(sessionId: string): UseChatStream {
               );
               return;
             }
-            // tool_call / tool_result / metadata: fold into the assistant turn.
+            // tool_call / tool_result / metadata / usage: fold into the assistant turn.
             setMessages((current) =>
               current.map((message) => {
                 if (message.id !== assistantId) {
@@ -246,6 +255,9 @@ export function useChatStream(sessionId: string): UseChatStream {
                 if (event.type === "tool_result") {
                   const steps = applyToolResult(message.toolSteps ?? [], event);
                   return { ...message, toolSteps: steps };
+                }
+                if (event.type === "usage") {
+                  return { ...message, tokenUsage: event.usage };
                 }
                 // metadata
                 return { ...message, toolSearch: event.metadata };
@@ -339,6 +351,7 @@ async function readChatStream(
         call?: unknown;
         result?: unknown;
         metadata?: unknown;
+        usage?: unknown;
       };
       try {
         parsed = JSON.parse(payload) as typeof parsed;
@@ -357,6 +370,11 @@ async function readChatStream(
         }
       } else if (parsed.type === "tool_result") {
         const frame = parseToolResultFrame(parsed.result);
+        if (frame) {
+          onEvent(frame);
+        }
+      } else if (parsed.type === "usage") {
+        const frame = parseUsageFrame(parsed.usage);
         if (frame) {
           onEvent(frame);
         }
@@ -405,6 +423,33 @@ function parseToolResultFrame(raw: unknown): ToolResultFrame | null {
       name: result.name,
       ok: result.ok === true,
       output: result.output,
+    },
+  };
+}
+
+/**
+ * Validate a usage frame payload off the wire; null if malformed or missing
+ * the numeric fields the UI reads. Defaults any missing field to 0 so the
+ * provider's partial usage (e.g. only prompt/completion, no cached/reasoning)
+ * still surfaces without crashing the parser.
+ */
+function parseUsageFrame(raw: unknown): UsageFrame | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const u = raw as Record<string, unknown>;
+  const num = (key: string): number =>
+    typeof u[key] === "number" && Number.isFinite(u[key] as number) && (u[key] as number) >= 0
+      ? (u[key] as number)
+      : 0;
+  return {
+    type: "usage",
+    usage: {
+      inputTokens: num("inputTokens"),
+      outputTokens: num("outputTokens"),
+      totalTokens: num("totalTokens"),
+      reasoningTokens: num("reasoningTokens"),
+      cachedInputTokens: num("cachedInputTokens"),
     },
   };
 }

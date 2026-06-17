@@ -2,9 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import {
   type ChatMessage,
+  compactUsage,
   MissingEnvironmentVariableError,
   OpenRouterError,
   type OpenRouterMessage,
+  type OpenRouterTurnUsage,
   requireEnv,
   resolveChatModel,
   streamChatCompletion,
@@ -161,6 +163,17 @@ async function streamPlainChat({
         }
       };
 
+      // Plain path makes exactly one upstream request, so at most one usage
+      // chunk lands; keep the latest and emit it once at the end (zeros if the
+      // provider omitted it or the request aborted).
+      let usage: OpenRouterTurnUsage = {
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+      };
+
       try {
         await pumpChatCompletion(
           upstream.body,
@@ -168,11 +181,15 @@ async function streamPlainChat({
             send(sseData(event));
           },
           request.signal,
+          (rawUsage) => {
+            usage = compactUsage(rawUsage);
+          },
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : "Chat stream failed.";
         send(sseData({ type: "error", message }));
       } finally {
+        send(sseData({ type: "usage", usage }));
         send(SSE_DONE);
         try {
           controller.close();

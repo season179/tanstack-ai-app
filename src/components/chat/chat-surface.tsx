@@ -5,6 +5,7 @@ import { useChatShell } from "~/components/chat/chat-shell-context";
 import { ModelPicker } from "~/components/chat/model-picker";
 import { ToolTracePanel } from "~/components/chat/tool-trace-panel";
 import { Button } from "~/components/ui/button";
+import { formatUsageLine, isUsageEmpty } from "~/lib/chat/tool-events";
 import { useChatStream } from "~/lib/hooks/use-chat-stream";
 import { useModels } from "~/lib/hooks/use-models";
 import { useSkills } from "~/lib/hooks/use-skills";
@@ -131,6 +132,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
                     content={message.content}
                     isStreaming={isAssistantActive}
                     sender={message.role}
+                    tokenUsage={message.tokenUsage}
                     toolSteps={message.toolSteps}
                     toolSearch={message.toolSearch}
                   />
@@ -280,6 +282,7 @@ function MessageRow({
   content,
   isStreaming,
   sender,
+  tokenUsage,
   toolSteps,
   toolSearch,
 }: {
@@ -287,12 +290,20 @@ function MessageRow({
   content: string;
   isStreaming?: boolean;
   sender: "user" | "assistant";
+  tokenUsage?: import("~/lib/chat/tool-events").TurnTokenUsage;
   toolSteps?: import("~/lib/chat/tool-events").ToolStep[];
   toolSearch?: import("~/lib/chat/tool-events").ToolSearchSummary;
 }) {
   const isUser = sender === "user";
   const hasToolActivity =
     !isUser && ((toolSteps && toolSteps.length > 0) || toolSearch !== undefined);
+  // Only surface real OpenRouter usage once the turn has stopped streaming
+  // (and only if the provider actually returned one) so the caption never
+  // flickers an empty "0 · 0 · 0 total" mid-stream.
+  const usageLine =
+    !isUser && !isStreaming && tokenUsage && !isUsageEmpty(tokenUsage)
+      ? formatUsageLine(tokenUsage)
+      : "";
 
   return (
     <div className={cn("flex flex-col gap-1.5", isUser ? "items-end" : "items-start")}>
@@ -304,6 +315,9 @@ function MessageRow({
       />
       {hasToolActivity ? (
         <ToolTracePanel isStreaming={isStreaming} steps={toolSteps ?? []} summary={toolSearch} />
+      ) : null}
+      {usageLine.length > 0 ? (
+        <p className="px-1 text-[11px] tabular-nums text-muted-foreground/80">{usageLine}</p>
       ) : null}
     </div>
   );

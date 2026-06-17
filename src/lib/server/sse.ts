@@ -33,12 +33,15 @@ export const SSE_HEADERS: HeadersInit = {
  * Pump an upstream SSE byte stream through a transform that yields our own
  * text/error events, invoking `onEvent` for each assistant token. Returns when
  * the upstream stream closes or errors. The upstream's terminal `data: [DONE]`
- * and any non-content deltas are ignored.
+ * and any non-content deltas are ignored. Real OpenRouter `usage` from the
+ * final chunk is folded into `onUsage` if provided (the plain chat path emits
+ * a single per-turn usage frame once the stream resolves).
  */
 export async function pumpChatCompletion(
   upstream: ReadableStream<Uint8Array> | null,
   onEvent: ChatStreamSink,
   signal?: AbortSignal,
+  onUsage?: (usage: OpenAiUsage) => void,
 ): Promise<void> {
   // Content-only view over the generic OpenAI chunk pump: any text delta is
   // re-emitted as our minimal {type:"text"} event. Tool-call deltas are
@@ -49,16 +52,38 @@ export async function pumpChatCompletion(
       if (delta.content) {
         onEvent({ type: "text", text: delta.content });
       }
+      if (delta.usage) {
+        onUsage?.(delta.usage);
+      }
     },
     signal,
   );
 }
 
 /**
+ * Real token usage emitted by OpenRouter in the terminal chunk when the
+ * request set `stream_options.include_usage: true`. All fields are optional
+ * because providers differ in which details they populate; callers compact
+ * this into the client-facing TurnTokenUsage shape (undefined → 0).
+ *
+ * Mirrors the OpenAI/OpenRouter shape: `prompt_tokens_details.cached_tokens`
+ * is the cache-read count, `completion_tokens_details.reasoning_tokens` is the
+ * reasoning output the model produced before its visible answer.
+ */
+export type OpenAiUsage = {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  cachedPromptTokens?: number;
+  reasoningTokens?: number;
+};
+
+/**
  * Lower-level OpenAI streaming chunk: the parsed `choices[0].delta` fields we
- * care about plus the terminal `finish_reason`. Used by the tool-aware turn
- * pump; the content-only `pumpChatCompletion` keeps its own simpler reader so
- * the existing plain chat path stays byte-identical.
+ * care about plus the terminal `finish_reason` and the top-level `usage`
+ * (emitted once in the final chunk when include_usage is on). Used by the
+ * tool-aware turn pump; the content-only `pumpChatCompletion` keeps its own
+ * simpler reader so the existing plain chat path stays byte-identical.
  */
 export type OpenAiDeltaChunk = {
   content?: string;
@@ -69,6 +94,7 @@ export type OpenAiDeltaChunk = {
     function?: { name?: string; arguments?: string };
   }>;
   finishReason?: string | null;
+  usage?: OpenAiUsage;
 };
 
 /**
@@ -139,9 +165,23 @@ function parseOpenAiDelta(payload: string): OpenAiDeltaChunk | null {
     return null;
   }
 
-  const choices = (parsed as { choices?: unknown }).choices;
+  const root = parsed as { choices?: unknown; usage?: unknown };
+
+  const chunk: OpenAiDeltaChunk = {};
+
+  // OpenRouter/OpenAI emit the final usage as a TOP-LEVEL field on a terminal
+  // chunk whose `choices` array is empty. Extract it before the empty-choices
+  // early return so the per-turn token accounting isn't silently dropped.
+  const usage = parseUsage(root.usage);
+  if (usage) {
+    chunk.usage = usage;
+  }
+
+  const choices = root.choices;
   if (!Array.isArray(choices) || choices.length === 0) {
-    return {};
+    // Either the usage-only final chunk (usage captured above) or a malformed
+    // keepalive; return what we have so the caller sees any usage we parsed.
+    return chunk;
   }
 
   const choice = choices[0] as {
@@ -149,7 +189,6 @@ function parseOpenAiDelta(payload: string): OpenAiDeltaChunk | null {
     finish_reason?: unknown;
   };
   const delta = choice.delta ?? {};
-  const chunk: OpenAiDeltaChunk = {};
 
   if (typeof delta.content === "string" && delta.content.length > 0) {
     chunk.content = delta.content;
@@ -186,4 +225,55 @@ function parseOpenAiDelta(payload: string): OpenAiDeltaChunk | null {
   }
 
   return chunk;
+}
+
+/**
+ * Read the OpenAI/OpenRouter usage object off a chunk. Returns null when the
+ * payload is absent or carries no numeric field we care about (the provider
+ * sometimes sends `{}` while streaming). Numbers are coerced: non-finite or
+ * negative values are dropped so the client can trust any present field.
+ */
+function parseUsage(raw: unknown): OpenAiUsage | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const u = raw as {
+    prompt_tokens?: unknown;
+    completion_tokens?: unknown;
+    total_tokens?: unknown;
+    prompt_tokens_details?: { cached_tokens?: unknown } | null;
+    completion_tokens_details?: { reasoning_tokens?: unknown } | null;
+  };
+
+  const num = (value: unknown): number | undefined => {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+      return undefined;
+    }
+    return value;
+  };
+
+  const usage: OpenAiUsage = {};
+  const promptTokens = num(u.prompt_tokens);
+  const completionTokens = num(u.completion_tokens);
+  const totalTokens = num(u.total_tokens);
+  const cachedPromptTokens = num(u.prompt_tokens_details?.cached_tokens);
+  const reasoningTokens = num(u.completion_tokens_details?.reasoning_tokens);
+
+  if (promptTokens !== undefined) {
+    usage.promptTokens = promptTokens;
+  }
+  if (completionTokens !== undefined) {
+    usage.completionTokens = completionTokens;
+  }
+  if (totalTokens !== undefined) {
+    usage.totalTokens = totalTokens;
+  }
+  if (cachedPromptTokens !== undefined) {
+    usage.cachedPromptTokens = cachedPromptTokens;
+  }
+  if (reasoningTokens !== undefined) {
+    usage.reasoningTokens = reasoningTokens;
+  }
+
+  return Object.keys(usage).length > 0 ? usage : null;
 }
