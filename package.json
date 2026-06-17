@@ -14,6 +14,8 @@
     "preview": "vite preview",
     "lint": "biome check .",
     "format": "biome check --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -40,7 +42,8 @@
     "nitro": "^3.0.260610-beta",
     "tailwindcss": "^4.3.1",
     "typescript": "^6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.9"
   },
   "packageManager": "pnpm@11.5.1"
 }
