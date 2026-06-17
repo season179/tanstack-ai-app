@@ -4,11 +4,14 @@ import {
   type ChatMessage,
   MissingEnvironmentVariableError,
   OpenRouterError,
+  type OpenRouterMessage,
   requireEnv,
   resolveChatModel,
   streamChatCompletion,
 } from "~/lib/server/openrouter";
 import { pumpChatCompletion, SSE_DONE, SSE_HEADERS, sseData } from "~/lib/server/sse";
+import { resolveToolExposureMode } from "~/lib/server/tools/token-usage";
+import { runToolLoop } from "~/lib/server/tools/tool-loop";
 import { isUuid } from "~/lib/utils";
 
 export const Route = createFileRoute("/api/chat")({
@@ -110,6 +113,31 @@ async function handleChat(request: Request): Promise<Response> {
 
   const runMessages: ChatMessage[] = [{ role: "system", content: SYSTEM_PROMPT }, ...messages];
 
+  const exposureMode = resolveToolExposureMode(process.env.TOOL_EXPOSURE_MODE);
+
+  // `none` keeps the original AI-SDK-free plain streaming path byte-identical
+  // (a safe baseline / opt-out). `search` (default) and `all` drive the
+  // deferred tool-search loop, emitting text + tool_call/tool_result/metadata
+  // frames over the same SSE channel.
+  if (exposureMode === "none") {
+    return streamPlainChat({ apiKey, model, runMessages, request });
+  }
+
+  return streamToolChat({ apiKey, model, messages, exposureMode, request });
+}
+
+/** Plain streaming path: re-emit OpenRouter text deltas as our minimal SSE. */
+async function streamPlainChat({
+  apiKey,
+  model,
+  runMessages,
+  request,
+}: {
+  apiKey: string;
+  model: string;
+  runMessages: ChatMessage[];
+  request: Request;
+}): Promise<Response> {
   let upstream: Response;
   try {
     upstream = await streamChatCompletion({
@@ -119,14 +147,7 @@ async function handleChat(request: Request): Promise<Response> {
       signal: request.signal,
     });
   } catch (error) {
-    if (error instanceof OpenRouterError) {
-      return Response.json({ error: error.message }, { status: 502 });
-    }
-    console.error("Chat stream failed to start", error);
-    return Response.json(
-      { error: "Chat request failed before the stream could start." },
-      { status: 500 },
-    );
+    return upstreamErrorResponse(error);
   }
 
   const stream = new ReadableStream<Uint8Array>({
@@ -167,4 +188,98 @@ async function handleChat(request: Request): Promise<Response> {
   });
 
   return new Response(stream, { headers: SSE_HEADERS });
+}
+
+/**
+ * Tool-loop streaming path. Drives runToolLoop, mapping its events onto the
+ * SSE channel: text deltas keep the existing {type:"text"} shape (so the
+ * current client renders them unchanged), while tool_call/tool_result and a
+ * final metadata frame are emitted as new event types the client ignores for
+ * now (forward-compatible with the chat-UI surfacing iteration).
+ */
+async function streamToolChat({
+  apiKey,
+  model,
+  messages,
+  exposureMode,
+  request,
+}: {
+  apiKey: string;
+  model: string;
+  messages: ChatMessage[];
+  exposureMode: Exclude<ReturnType<typeof resolveToolExposureMode>, "none">;
+  request: Request;
+}): Promise<Response> {
+  const runMessages: OpenRouterMessage[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...messages,
+  ];
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      let closed = false;
+      const send = (frame: string) => {
+        if (closed) {
+          return;
+        }
+        try {
+          controller.enqueue(encoder.encode(frame));
+        } catch {
+          closed = true;
+        }
+      };
+
+      try {
+        await runToolLoop({
+          apiKey,
+          model,
+          messages: runMessages,
+          mode: exposureMode,
+          signal: request.signal,
+          onEvent: (event) => {
+            send(sseData(event));
+          },
+        });
+      } catch (error) {
+        if (!request.signal.aborted) {
+          const message =
+            error instanceof OpenRouterError
+              ? error.message
+              : error instanceof Error
+                ? error.message
+                : "Chat stream failed.";
+          send(sseData({ type: "error", message }));
+          console.error("Tool loop failed", error);
+        }
+      } finally {
+        send(SSE_DONE);
+        try {
+          controller.close();
+        } catch {
+          // Already closed by a disconnect; safe to ignore.
+        }
+        closed = true;
+      }
+    },
+    cancel(reason) {
+      // The loop reads request.signal; aborting it propagates to OpenRouter.
+      // No upstream handle to cancel here — runToolLoop owns the fetch.
+      void reason;
+    },
+  });
+
+  return new Response(stream, { headers: SSE_HEADERS });
+}
+
+/** Map a pre-stream OpenRouter error to the right HTTP response. */
+function upstreamErrorResponse(error: unknown): Response {
+  if (error instanceof OpenRouterError) {
+    return Response.json({ error: error.message }, { status: 502 });
+  }
+  console.error("Chat stream failed to start", error);
+  return Response.json(
+    { error: "Chat request failed before the stream could start." },
+    { status: 500 },
+  );
 }

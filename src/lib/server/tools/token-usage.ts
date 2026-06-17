@@ -6,7 +6,19 @@
  * that wires the bridge into the chat UI. Everything here is pure.
  */
 
+/**
+ * Metadata-level exposure mode: `search` sends only the 3-tool bridge,
+ * `all` sends every catalog tool. `none` never reaches metadata because the
+ * chat loop is skipped entirely; it lives on ToolExposureMode instead.
+ */
 export type ToolSearchMode = "all" | "search";
+
+/**
+ * Decision-level exposure mode resolved from TOOL_EXPOSURE_MODE. `none`
+ * disables the tool loop entirely (plain streaming, the safe baseline);
+ * `search`/`all` match ToolSearchMode and run the deferred bridge loop.
+ */
+export type ToolExposureMode = "none" | ToolSearchMode;
 
 export type ToolSearchMatch = {
   name: string;
@@ -64,8 +76,21 @@ export type ToolSearchMetadata = {
   trace: ToolSearchTraceEvent[];
 };
 
-export function resolveToolExposureMode(value: string | undefined): ToolSearchMode {
-  return value?.trim().toLowerCase() === "all" ? "all" : "search";
+/**
+ * Resolve the tool exposure mode from an env value. Defaults to `search`
+ * (the reference's thesis: the model sees only the bridge). `all` exposes
+ * every catalog tool; `none`/`off` disables the tool loop entirely so the
+ * chat falls back to plain streaming without function-calling.
+ */
+export function resolveToolExposureMode(value: string | undefined): ToolExposureMode {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "all") {
+    return "all";
+  }
+  if (normalized === "none" || normalized === "off") {
+    return "none";
+  }
+  return "search";
 }
 
 export function estimateTokensFromChars(chars: number) {
