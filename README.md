@@ -55,8 +55,11 @@ skill `/skill-name` parsers, validation rules, and activation wire-format
 projection (`canFire` / `projectNextFire`), the scheduled-jobs board display
 formatters (run duration / result / status classes), the tool-events formatters
 + tool-step pairing, the deferred tool-search bridge (BM25 + substring fallback
-+ the savings metadata), and the OpenAI/OpenRouter SSE chunk parser (covering
-the usage-capture and tool-call fragment reassembly regressions documented in
++ the savings metadata), the token-usage allocation math (char→token
+estimation, the largest-remainder category + per-tool-schema split driving
+the header's input-token breakdown, the sum-vs-max aggregation across
+round-trips), and the OpenAI/OpenRouter SSE chunk parser (covering the
+usage-capture and tool-call fragment reassembly regressions documented in
 the iteration log).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
