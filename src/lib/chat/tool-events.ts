@@ -84,15 +84,62 @@ export type UsageFrame = {
   usage: TurnTokenUsage;
 };
 
+/** Category ids for the estimated input-token split bar. */
+export type TokenUsageBreakdownCategoryId = "systemPrompt" | "messages" | "tools";
+
+export type TokenUsageBreakdownCategory = {
+  id: TokenUsageBreakdownCategoryId;
+  label: string;
+  tokens: number;
+  percentage: number;
+  chars: number;
+};
+
+export type TokenUsageToolBreakdown = {
+  name: string;
+  tokens: number;
+  percentage: number;
+  chars: number;
+};
+
+/**
+ * The estimated split of one assistant turn's input tokens across
+ * system-prompt / tool-schema / conversation content. A client-owned mirror of
+ * the server's TokenUsageBreakdown; the server allocates the real provider
+ * inputTokens across the per-request prompt-char estimates and we render it.
+ */
+export type TokenUsageBreakdown = {
+  inputTokens?: number;
+  estimated: true;
+  requestCount: number;
+  messageCount: number;
+  toolCount: number;
+  excludedRequestOptionTokens: number;
+  categories: TokenUsageBreakdownCategory[];
+  tools: TokenUsageToolBreakdown[];
+};
+
+/** A breakdown frame from the server, carrying the input-token split. */
+export type BreakdownFrame = {
+  type: "breakdown";
+  breakdown: TokenUsageBreakdown;
+};
+
 /** The union of frame types the chat stream parser may now hand us. */
-export type ToolFrame = ToolCallFrame | ToolResultFrame | MetadataFrame | UsageFrame;
+export type ToolFrame =
+  | ToolCallFrame
+  | ToolResultFrame
+  | MetadataFrame
+  | UsageFrame
+  | BreakdownFrame;
 
 export function isToolFrame(value: { type?: unknown }): value is ToolFrame {
   return (
     value.type === "tool_call" ||
     value.type === "tool_result" ||
     value.type === "metadata" ||
-    value.type === "usage"
+    value.type === "usage" ||
+    value.type === "breakdown"
   );
 }
 
@@ -183,6 +230,21 @@ export function formatTokenPercentage(fraction: number): string {
 }
 
 /**
+ * Format a percentage already expressed as 0–100 (the breakdown's category /
+ * tool `percentage` fields). Distinct from formatTokenPercentage which takes
+ * a 0–1 fraction. Returns "0%" for non-positive / non-finite values.
+ */
+export function formatPercentageValue(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0%";
+  }
+  if (value < 1) {
+    return `${value.toFixed(1)}%`;
+  }
+  return `${Math.round(value)}%`;
+}
+
+/**
  * One-line label for the savings readout, e.g.
  *   "Search bridge · 3 tools sent · 1,560 tokens · 98.7% saved (118.5k baseline)"
  */
@@ -241,14 +303,14 @@ export function sumUsage(usages: Iterable<TurnTokenUsage>): TurnTokenUsage {
 
 /**
  * The header's per-session usage readout. `sessionUsage` accumulates every
- * assistant turn in the transcript; `latestUsage`/`latestToolSearch` reflect
- * the most recent assistant turn. (`latestBreakdown` from the reference needs
- * the full input-token allocation machinery and is deferred to a later iter.)
+ * assistant turn in the transcript; `latestUsage`/`latestToolSearch`/
+ * `latestBreakdown` reflect the most recent assistant turn.
  */
 export type ChatUsageSummary = {
   sessionUsage: TurnTokenUsage;
   latestUsage?: TurnTokenUsage;
   latestToolSearch?: ToolSearchSummary;
+  latestBreakdown?: TokenUsageBreakdown;
 };
 
 /** A usage record with every field at 0 is the "provider omitted usage" shape. */

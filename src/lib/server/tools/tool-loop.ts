@@ -30,11 +30,13 @@ import { getMockToolFunctionSchema, type RealisticToolInput } from "./mock-tools
 import { NO_TOOL_CONTEXT, type ToolExecutionContext, toolRegistry } from "./registry";
 import type {
   RequestTokenEstimate,
+  TokenUsageBreakdown,
   ToolExposureMode,
   ToolSearchMetadata,
   ToolSearchMode,
   ToolSearchTraceEvent,
 } from "./token-usage";
+import { estimateRequestTokenUsage, toTokenUsageBreakdown } from "./token-usage";
 import {
   buildToolSearchMetadata,
   executeToolCall,
@@ -68,6 +70,7 @@ export type ToolLoopEvent =
   | { type: "tool_call"; call: ToolCallDescriptor }
   | { type: "tool_result"; result: ToolResultDescriptor }
   | { type: "usage"; usage: OpenRouterTurnUsage }
+  | { type: "breakdown"; breakdown?: TokenUsageBreakdown }
   | { type: "metadata"; metadata: ToolSearchMetadata };
 
 export type ToolLoopOptions = {
@@ -188,7 +191,6 @@ export async function runToolLoop({
   const tools = searchMode === "search" ? BRIDGE_TOOLS : ALL_TOOLS;
   const trace: ToolSearchTraceEvent[] = [];
   const requestEstimates: RequestTokenEstimate[] = [];
-  const toolSchemaChars = JSON.stringify(tools).length;
   // Real OpenRouter usage summed across every round-trip in the loop. The user
   // sees ONE assistant reply that may have cost N upstream requests (search →
   // describe → call → final answer), so totals are the meaningful number —
@@ -216,16 +218,26 @@ export async function runToolLoop({
       }),
     });
   };
-
   try {
     for (let iteration = 0; iteration < MAX_LOOP_ITERATIONS; iteration += 1) {
       if (signal?.aborted) {
         break;
       }
 
-      // One schema-cost estimate per upstream request — the bridge measures
-      // deferred-vs-all savings from the tool schemas actually sent.
-      requestEstimates.push({ toolChars: toolSchemaChars });
+      // One prompt-cost estimate per upstream request — measuring the actual
+      // body sent (system prompt + messages + tool schemas + request options).
+      // The bridge reads .toolChars for deferred-vs-all schema savings; the
+      // breakdown allocator reads the full shape for the input-token split.
+      const estimate = estimateRequestTokenUsage({
+        model,
+        messages: run,
+        stream: true,
+        stream_options: { include_usage: true },
+        ...(tools.length > 0 ? { tools, tool_choice: "auto" } : {}),
+      });
+      if (estimate) {
+        requestEstimates.push(estimate);
+      }
 
       const turn = await streamToolAwareTurn({
         apiKey,
@@ -276,8 +288,13 @@ export async function runToolLoop({
     }
   } finally {
     // Emit one aggregated usage frame per turn (zeros if the provider never
-    // sent usage, e.g. an aborted run), then the deferred-vs-all metadata.
+    // sent usage, e.g. an aborted run), then the estimated input-token split,
+    // then the deferred-vs-all metadata.
     onEvent({ type: "usage", usage });
+    onEvent({
+      type: "breakdown",
+      breakdown: toTokenUsageBreakdown(usage.inputTokens, requestEstimates),
+    });
     emitMetadata();
   }
 }

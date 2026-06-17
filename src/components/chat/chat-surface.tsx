@@ -98,6 +98,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
       ),
       latestUsage: latest?.tokenUsage,
       latestToolSearch: latest?.toolSearch,
+      latestBreakdown: latest?.tokenUsageBreakdown,
     };
     const signature = JSON.stringify(next);
     if (signature === usageSignatureRef.current) {

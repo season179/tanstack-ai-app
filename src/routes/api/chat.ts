@@ -12,7 +12,12 @@ import {
   streamChatCompletion,
 } from "~/lib/server/openrouter";
 import { pumpChatCompletion, SSE_DONE, SSE_HEADERS, sseData } from "~/lib/server/sse";
-import { resolveToolExposureMode } from "~/lib/server/tools/token-usage";
+import {
+  estimateRequestTokenUsage,
+  resolveToolExposureMode,
+  type TokenUsageBreakdown,
+  toTokenUsageBreakdown,
+} from "~/lib/server/tools/token-usage";
 import { runToolLoop } from "~/lib/server/tools/tool-loop";
 import { isUuid } from "~/lib/utils";
 
@@ -173,6 +178,14 @@ async function streamPlainChat({
         reasoningTokens: 0,
         cachedInputTokens: 0,
       };
+      // One prompt-cost estimate for the single upstream request, used to build
+      // the input-token split (system prompt / messages / request options).
+      const requestEstimate = estimateRequestTokenUsage({
+        model,
+        messages: runMessages,
+        stream: true,
+        stream_options: { include_usage: true },
+      });
 
       try {
         await pumpChatCompletion(
@@ -190,6 +203,12 @@ async function streamPlainChat({
         send(sseData({ type: "error", message }));
       } finally {
         send(sseData({ type: "usage", usage }));
+        const breakdown: TokenUsageBreakdown | undefined = requestEstimate
+          ? toTokenUsageBreakdown(usage.inputTokens, [requestEstimate])
+          : undefined;
+        if (breakdown) {
+          send(sseData({ type: "breakdown", breakdown }));
+        }
         send(SSE_DONE);
         try {
           controller.close();

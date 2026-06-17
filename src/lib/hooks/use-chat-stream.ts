@@ -9,7 +9,9 @@ import {
 import {
   applyToolCall,
   applyToolResult,
+  type BreakdownFrame,
   type MetadataFrame,
+  type TokenUsageBreakdown,
   type ToolCallFrame,
   type ToolFrame,
   type ToolResultFrame,
@@ -49,6 +51,12 @@ export type ChatMessage = {
    * usage. Persisted so a reload keeps the per-turn token readout.
    */
   tokenUsage?: TurnTokenUsage;
+  /**
+   * Assistant turns only: the estimated input-token split (system prompt /
+   * tool schemas / conversation) for this turn, surfaced in the header's
+   * Session Tokens menu. Persisted so a reload keeps the allocation bar.
+   */
+  tokenUsageBreakdown?: TokenUsageBreakdown;
 };
 
 export type ChatStatus = "ready" | "submitted" | "streaming" | "error";
@@ -259,6 +267,9 @@ export function useChatStream(sessionId: string): UseChatStream {
                 if (event.type === "usage") {
                   return { ...message, tokenUsage: event.usage };
                 }
+                if (event.type === "breakdown") {
+                  return { ...message, tokenUsageBreakdown: event.breakdown };
+                }
                 // metadata
                 return { ...message, toolSearch: event.metadata };
               }),
@@ -352,6 +363,7 @@ async function readChatStream(
         result?: unknown;
         metadata?: unknown;
         usage?: unknown;
+        breakdown?: unknown;
       };
       try {
         parsed = JSON.parse(payload) as typeof parsed;
@@ -375,6 +387,11 @@ async function readChatStream(
         }
       } else if (parsed.type === "usage") {
         const frame = parseUsageFrame(parsed.usage);
+        if (frame) {
+          onEvent(frame);
+        }
+      } else if (parsed.type === "breakdown") {
+        const frame = parseBreakdownFrame(parsed.breakdown);
         if (frame) {
           onEvent(frame);
         }
@@ -451,6 +468,98 @@ function parseUsageFrame(raw: unknown): UsageFrame | null {
       reasoningTokens: num("reasoningTokens"),
       cachedInputTokens: num("cachedInputTokens"),
     },
+  };
+}
+
+/**
+ * Validate a breakdown frame payload off the wire; null if malformed or
+ * missing the categories array the UI renders. Numeric fields default sanely
+ * so a partial breakdown still surfaces; unknown extra fields are dropped so
+ * the persisted shape stays the client's own.
+ */
+function parseBreakdownFrame(raw: unknown): BreakdownFrame | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const b = raw as Record<string, unknown>;
+  if (!Array.isArray(b.categories)) {
+    return null;
+  }
+  const categories = b.categories
+    .map(parseBreakdownCategory)
+    .filter((category): category is NonNullable<typeof category> => category !== null);
+  if (categories.length === 0) {
+    return null;
+  }
+  const tools = Array.isArray(b.tools)
+    ? b.tools
+        .map(parseToolBreakdown)
+        .filter((tool): tool is NonNullable<typeof tool> => tool !== null)
+    : [];
+  const num = (key: string): number =>
+    typeof b[key] === "number" && Number.isFinite(b[key] as number) && (b[key] as number) >= 0
+      ? (b[key] as number)
+      : 0;
+  const inputTokens =
+    typeof b.inputTokens === "number" && Number.isFinite(b.inputTokens) ? b.inputTokens : undefined;
+  return {
+    type: "breakdown",
+    breakdown: {
+      inputTokens,
+      estimated: true,
+      requestCount: num("requestCount") || 1,
+      messageCount: num("messageCount"),
+      toolCount: num("toolCount"),
+      excludedRequestOptionTokens: num("excludedRequestOptionTokens"),
+      categories,
+      tools,
+    },
+  };
+}
+
+function parseBreakdownCategory(
+  raw: unknown,
+): import("~/lib/chat/tool-events").TokenUsageBreakdownCategory | undefined {
+  if (typeof raw !== "object" || raw === null) {
+    return undefined;
+  }
+  const c = raw as Record<string, unknown>;
+  if (c.id !== "systemPrompt" && c.id !== "messages" && c.id !== "tools") {
+    return undefined;
+  }
+  const id = c.id;
+  const num = (key: string): number =>
+    typeof c[key] === "number" && Number.isFinite(c[key] as number) && (c[key] as number) >= 0
+      ? (c[key] as number)
+      : 0;
+  return {
+    id,
+    label: typeof c.label === "string" && c.label.length > 0 ? c.label : id,
+    tokens: num("tokens"),
+    percentage: num("percentage"),
+    chars: num("chars"),
+  };
+}
+
+function parseToolBreakdown(
+  raw: unknown,
+): import("~/lib/chat/tool-events").TokenUsageToolBreakdown | undefined {
+  if (typeof raw !== "object" || raw === null) {
+    return undefined;
+  }
+  const t = raw as Record<string, unknown>;
+  if (typeof t.name !== "string" || t.name.length === 0) {
+    return undefined;
+  }
+  const num = (key: string): number =>
+    typeof t[key] === "number" && Number.isFinite(t[key] as number) && (t[key] as number) >= 0
+      ? (t[key] as number)
+      : 0;
+  return {
+    name: t.name,
+    tokens: num("tokens"),
+    percentage: num("percentage"),
+    chars: num("chars"),
   };
 }
 
