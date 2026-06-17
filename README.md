@@ -77,9 +77,22 @@ for tool_call/tool_result/usage/breakdown/metadata/trace that protect the UI
 against malformed payloads), the OpenRouter client's pure helpers (the
 `compactUsage`/`sumUsage` per-turn usage compaction + aggregation that feed
 the usage frames, and the `requireEnv`/`MissingEnvironmentVariableError`/
-`OpenRouterError` env + error guards), and the tool loop's
+`OpenRouterError` env + error guards), the tool loop's
 `sentToolCountForMode` (the per-exposure-mode schema count that drives the
-`x-total-tools` verification header across search/all/none + skill-extras).
+`x-total-tools` verification header across search/all/none + skill-extras),
+and the localStorage-backed persistence stores — the chat sessions store
+(title provenance auto/generated/manual, AI-title upgrade guards, newest-
+updated-first ordering + `touchSession` re-float, per-session message
+pub/sub + cross-tab forwarding), the skills store (CRUD, replace-set
+reference semantics, newest-created-first ordering, cold-read validation),
+and the scheduled-tasks store (create/delete with home-session cascade,
+`ensureRun` idempotency, `completeRun`/`markTaskFired`, the `MAX_RUNS`
+trim, and the dual-flush `deleteTask` cascade). The store tests run under a
+jsdom environment (per-file `@vitest-environment jsdom`) so the stores'
+`window.localStorage` + `crypto.randomUUID` + cross-tab `storage`-event
+paths are exercised end-to-end, with a `vi.resetModules()` + dynamic
+re-import per test to reset the module-level caches/listeners and a
+deterministic fake `Date` clock for ordering-sensitive assertions.
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
