@@ -13,6 +13,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isMobileViewport, useAppShell } from "~/components/app-shell-context";
+import { ThemeToggle } from "~/components/theme-toggle";
 import { Button } from "~/components/ui/button";
 import { useChatBusy } from "~/lib/hooks/use-chat-busy";
 import { type SessionSummary, useChatSessions } from "~/lib/hooks/use-chat-sessions";
@@ -220,6 +221,7 @@ export function AppSidebar() {
               <Plus className="size-4" />
               {open ? "New chat" : null}
             </Button>
+            <ThemeToggle withLabel={open} />
           </div>
 
           {open ? (
