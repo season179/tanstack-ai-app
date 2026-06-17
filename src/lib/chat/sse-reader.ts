@@ -193,14 +193,14 @@ export function parseBreakdownFrame(raw: unknown): BreakdownFrame | null {
   }
   const categories = b.categories
     .map(parseBreakdownCategory)
-    .filter((category): category is NonNullable<typeof category> => category !== null);
+    .filter((category): category is NonNullable<typeof category> => category !== undefined);
   if (categories.length === 0) {
     return null;
   }
   const tools = Array.isArray(b.tools)
     ? b.tools
         .map(parseToolBreakdown)
-        .filter((tool): tool is NonNullable<typeof tool> => tool !== null)
+        .filter((tool): tool is NonNullable<typeof tool> => tool !== undefined)
     : [];
   const num = (key: string): number =>
     typeof b[key] === "number" && Number.isFinite(b[key] as number) && (b[key] as number) >= 0

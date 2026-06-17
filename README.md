@@ -60,9 +60,12 @@ formatters (run duration / result / status classes), the tool-events formatters
 + the savings metadata), the token-usage allocation math (char→token
 estimation, the largest-remainder category + per-tool-schema split driving
 the header's input-token breakdown, the sum-vs-max aggregation across
-round-trips), and the OpenAI/OpenRouter SSE chunk parser (covering the
+round-trips), the OpenAI/OpenRouter SSE chunk parser (covering the
 usage-capture and tool-call fragment reassembly regressions documented in
-the iteration log).
+the iteration log), and the client-side `/api/chat` SSE reader (the
+`readChatStream` line-buffered frame pump plus the six wire-frame validators
+for tool_call/tool_result/usage/breakdown/metadata/trace that protect the UI
+against malformed payloads).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
