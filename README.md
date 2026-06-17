@@ -104,7 +104,16 @@ anchored case-insensitive UUID validator driving the chat route's id check)
 and the chat busy-signal pub/sub (the no-op-on-identical-value guard,
 change-driven notification, multi-subscriber fan-out, and unsubscribe
 semantics that let the root-level sidebar mirror the per-session provider's
-streaming flag and apply the reference's three chatBusy guards).
+streaming flag and apply the reference's three chatBusy guards), and the
+scheduled-task background executor `executeScheduledRun` (the last
+side-effect module: a mocked-global-`fetch` harness scripting `/api/chat` SSE
+Responses while the real sessions + tasks stores run, covering the happy-path
+text stream + verdict + `origin="scheduled"` transcript append, multi-frame
+folding of reasoning / tool_call / tool_result / usage / breakdown / metadata
+onto the assistant turn, prior-transcript history threading on the wire, the
+whitespace-instruction / missing-home-session / fetch-reject / non-ok-JSON /
+non-ok-status / stream-error-frame failure modes, per-run-id idempotency,
+distinct-run independence, and the `touchSession` sidebar re-float).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
