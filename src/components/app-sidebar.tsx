@@ -10,7 +10,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isMobileViewport, useAppShell } from "~/components/app-shell-context";
 import { Button } from "~/components/ui/button";
@@ -44,6 +44,45 @@ function formatRelative(iso: string): string {
   return new Date(then).toLocaleDateString();
 }
 
+type SessionGroup = {
+  label: string;
+  items: SessionSummary[];
+};
+
+function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+/**
+ * Partition the already-sorted (newest-first) list into Today / Older, keeping
+ * order within each group. Matches the reference's sidebar grouping so a long
+ * session history stays navigable: today's chats float under a clear label and
+ * older ones collapse into a second section instead of one long flat list.
+ */
+function groupSessions(sessions: SessionSummary[]): SessionGroup[] {
+  const now = new Date();
+  const today: SessionSummary[] = [];
+  const older: SessionSummary[] = [];
+
+  for (const session of sessions) {
+    const stamp = new Date(session.updatedAt || session.createdAt);
+    if (isSameDay(stamp, now)) {
+      today.push(session);
+    } else {
+      older.push(session);
+    }
+  }
+
+  return [
+    { label: "Today", items: today },
+    { label: "Older", items: older },
+  ].filter((group) => group.items.length > 0);
+}
+
 export function AppSidebar() {
   const { sidebarOpen: open, toggleSidebar, closeSidebar } = useAppShell();
   const location = useRouterState({ select: (state) => state.location });
@@ -51,6 +90,7 @@ export function AppSidebar() {
   const { sessions, createSession, removeSession, renameSession } = useChatSessions();
 
   const activeSessionId = parseActiveSessionId(location.pathname);
+  const groups = useMemo(() => groupSessions(sessions), [sessions]);
 
   function goToSession(id: string) {
     void navigate({ to: "/chat/$sessionId", params: { sessionId: id } });
@@ -165,18 +205,25 @@ export function AppSidebar() {
                   No chats yet. Click <span className="font-medium">New chat</span> to start.
                 </p>
               ) : (
-                <ul className="space-y-0.5">
-                  {sessions.map((session) => (
-                    <SessionRow
-                      isActive={session.id === activeSessionId}
-                      key={session.id}
-                      onDelete={handleDeleteSession}
-                      onRename={renameSession}
-                      onSelect={goToSession}
-                      session={session}
-                    />
-                  ))}
-                </ul>
+                groups.map((group) => (
+                  <div className="mb-3" key={group.label}>
+                    <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {group.label}
+                    </p>
+                    <ul className="space-y-0.5">
+                      {group.items.map((session) => (
+                        <SessionRow
+                          isActive={session.id === activeSessionId}
+                          key={session.id}
+                          onDelete={handleDeleteSession}
+                          onRename={renameSession}
+                          onSelect={goToSession}
+                          session={session}
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                ))
               )}
             </nav>
           ) : null}
