@@ -113,7 +113,22 @@ folding of reasoning / tool_call / tool_result / usage / breakdown / metadata
 onto the assistant turn, prior-transcript history threading on the wire, the
 whitespace-instruction / missing-home-session / fetch-reject / non-ok-JSON /
 non-ok-status / stream-error-frame failure modes, per-run-id idempotency,
-distinct-run independence, and the `touchSession` sidebar re-float).
+distinct-run independence, and the `touchSession` sidebar re-float), plus — via a
+React Testing Library `renderHook` harness (jsdom + a mocked global `fetch`
+scripting `/api/chat` SSE bodies) — the React hooks layer that was the last
+untested surface: `useChatStream` (the client chat runtime: send happy path
+with transcript persistence + first-turn AI titling firing once, the empty /
+whitespace / busy no-op guards, the empty-placeholder drop on a no-text
+stream, the non-ok status-fallback + JSON-error-body-preferred + fetch-reject
++ server-error-frame error paths, `stop` abort + settle, `regenerate`
+dropping the trailing reply + busy no-op, reasoning / tool_call / tool_result /
+usage / breakdown / metadata folding onto one assistant turn, and
+`/skill-name` activation prepending the skill block on the wire only),
+`useModels` (localStorage selection restore + `setSelectedModel` persistence
+including the null-removal and storage-throw fail-soft paths, and the lazy
+`ensureLoaded` fetch with idempotency + non-ok soft-fail + reject-then-retry
+reset + loading flag), and `useHydrated` (the post-mount true + rerender /
+remount stability).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
