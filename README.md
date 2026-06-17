@@ -50,8 +50,9 @@ Feature-complete with the reference's chat-surface thesis:
 - App chrome (collapsible sidebar, header, /, /tasks, /skills, /chat/$sessionId)
   on the OKLCH design system.
 - Streaming chat (no AI SDK): OpenRouter over a self-owned SSE protocol, with
-  multi-session localStorage persistence, inline rename, smart auto-scroll,
-  retry/regenerate, and a searchable model picker.
+  multi-session localStorage persistence, AI-generated session titles (with a
+  provenance-tracked instant first-message fallback), inline rename, smart
+  auto-scroll, retry/regenerate, and a searchable model picker.
 - Deferred tool-search bridge (BM25 over 200 mock tools) driven by a
   hand-rolled OpenRouter tool loop (search → describe → call), surfaced inline
   as a collapsible tool trace with deferred-vs-all token savings.

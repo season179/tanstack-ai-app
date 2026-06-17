@@ -18,9 +18,22 @@ const MESSAGES_PREFIX = "tanstack-ai-app:messages:";
 export const TITLE_MAX = 80;
 export const DEFAULT_TITLE = "New chat";
 
+/**
+ * Provenance of a session's title, so an AI-generated title can upgrade an
+ * auto first-message title without ever clobbering a manual rename. Omitted on
+ * legacy localStorage sessions, which are treated as 'auto' (overridable).
+ */
+export type TitleSource = "auto" | "generated" | "manual";
+
 export type SessionSummary = {
   id: string;
   title: string;
+  /**
+   * 'auto' for the default/first-message title, 'generated' once the AI titler
+   * has named the session, 'manual' once the user renames. Undefined (treated
+   * as 'auto') on sessions persisted before this field existed.
+   */
+  titleSource?: TitleSource;
   createdAt: string;
   updatedAt: string;
 };
@@ -165,6 +178,7 @@ export function createSession(title: string = DEFAULT_TITLE): SessionSummary {
   const session: SessionSummary = {
     id: newId(),
     title: trimmed,
+    titleSource: "auto",
     createdAt: now,
     updatedAt: now,
   };
@@ -190,19 +204,20 @@ export function renameSession(id: string, title: string): void {
     return;
   }
   const next = getSessionsSnapshot().map((session) =>
-    session.id === id ? { ...session, title: trimmed } : session,
+    session.id === id ? { ...session, title: trimmed, titleSource: "manual" as const } : session,
   );
   flush(next);
 }
 
 /**
- * Auto-title: only writes if the session still carries the default title, so a
- * user rename is never overwritten and concurrent completions don't clobber
- * each other. Mirrors the reference's setSessionTitleIfUnset semantics.
+ * Auto-title from the first user message (instant sidebar feedback): only
+ * writes while the session is still on an 'auto' (default/first-message)
+ * title — never clobbers a generated or manual rename, and concurrent
+ * completions don't fight each other.
  */
 export function setSessionTitleFromMessage(id: string, firstUserText: string): void {
   const current = getSession(id);
-  if (!current || current.title !== DEFAULT_TITLE) {
+  if (!current || !isAutoTitle(current)) {
     return;
   }
   const normalized = firstUserText.trim().replace(/\s+/g, " ");
@@ -211,8 +226,37 @@ export function setSessionTitleFromMessage(id: string, firstUserText: string): v
   }
   const title =
     normalized.length > TITLE_MAX ? `${normalized.slice(0, TITLE_MAX - 1)}…` : normalized;
+  setSessionTitle(id, title, "auto");
+}
+
+/**
+ * AI-generated title: upgrades an 'auto' (default/first-message) title to the
+ * model's 3-5 word name once the first turn resolves. Never overwrites a
+ * manual rename or a prior generated title, so a re-run of the first turn or
+ * a slow-arriving second completion can't clobber what's already named.
+ */
+export function setGeneratedSessionTitle(id: string, title: string): void {
+  const current = getSession(id);
+  if (!current || !isAutoTitle(current)) {
+    return;
+  }
+  const trimmed = title.trim().slice(0, TITLE_MAX);
+  if (!trimmed) {
+    return;
+  }
+  setSessionTitle(id, trimmed, "generated");
+}
+
+/** True iff the session title is still overridable by auto/generated setters. */
+function isAutoTitle(session: SessionSummary): boolean {
+  return session.titleSource === undefined || session.titleSource === "auto";
+}
+
+function setSessionTitle(id: string, title: string, source: TitleSource): void {
   flush(
-    getSessionsSnapshot().map((session) => (session.id === id ? { ...session, title } : session)),
+    getSessionsSnapshot().map((session) =>
+      session.id === id ? { ...session, title, titleSource: source } : session,
+    ),
   );
 }
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   readMessages,
+  setGeneratedSessionTitle,
   setSessionTitleFromMessage,
   touchSession,
   writeMessages,
@@ -137,12 +138,49 @@ export function useChatStream(sessionId: string): UseChatStream {
     messagesRef.current = messages;
   }, [messages]);
 
-  // Load any persisted transcript for this session once on mount.
+  // True once this session has been (or is being) titled, so the AI titler
+  // fires at most once per session and never re-titles a loaded/renamed one.
+  // Reset per-session via the keyed remount at the call site.
+  const titledRef = useRef(false);
+
+  // Load any persisted transcript for this session once on mount, and mark it
+  // already-titled when it has history so a loaded session is never re-titled.
   useEffect(() => {
-    setMessages(readMessages(sessionId));
+    const loaded = readMessages(sessionId);
+    setMessages(loaded);
+    titledRef.current = loaded.length > 0;
     // Re-read on sessionId change is handled by the keyed remount at the call
     // site (ChatSurface key={sessionId}); this effect therefore runs per-mount.
   }, [sessionId]);
+
+  // First-turn titling: once the first user+assistant exchange completes (the
+  // assistant reply has visible content and the stream settled to 'ready'),
+  // ask the server to name the session and upgrade the instant first-message
+  // title. Driven from an effect (not the streaming finalize) because React's
+  // automatic batching defers the finalize's setMessages updater past any code
+  // that runs right after it; an effect runs post-commit and reliably sees the
+  // finalized transcript. Guarded by titledRef so it fires once and skips
+  // loaded sessions (titledRef set in the load effect above).
+  useEffect(() => {
+    if (titledRef.current) {
+      return;
+    }
+    if (status !== "ready" || messages.length !== 2) {
+      return;
+    }
+    const [firstUser, firstAssistant] = messages;
+    if (
+      !firstUser ||
+      !firstAssistant ||
+      firstUser.role !== "user" ||
+      firstAssistant.role !== "assistant" ||
+      firstAssistant.content.length === 0
+    ) {
+      return;
+    }
+    titledRef.current = true;
+    void generateTitleForSession(sessionId, firstUser.content, firstAssistant.content);
+  }, [messages, status, sessionId]);
 
   /** Persist a snapshot, dropping any trailing empty assistant placeholder. */
   const persist = useCallback(
@@ -291,6 +329,12 @@ export function useChatStream(sessionId: string): UseChatStream {
         // subscription, so it MUST run outside — calling it during this state
         // update triggers React's "Cannot update a component while rendering a
         // different component" warning.
+        //
+        // First-turn titling is NOT fired here: React 18's automatic batching
+        // defers this updater to the render phase, so any code reading a
+        // closure variable populated inside it would run before the updater
+        // commits. Titling is driven by a post-commit useEffect below (guarded
+        // by a ref) which reliably sees the finalized transcript.
         setMessages((current) => {
           const finalized = current.filter(
             (message) => !(message.id === assistantId && message.content.length === 0),
@@ -340,7 +384,8 @@ export function useChatStream(sessionId: string): UseChatStream {
       setStatus("submitted");
 
       // Persist the user turn immediately and float the chat to the top of the
-      // sidebar; auto-title from this first user message if still untitled.
+      // sidebar; auto-title from this first user message as instant feedback
+      // (the AI titler upgrades it once the reply resolves, if still overridable).
       persist(outbound);
       touchSession(sessionId);
       setSessionTitleFromMessage(sessionId, trimmed);
@@ -414,6 +459,35 @@ export function useChatStream(sessionId: string): UseChatStream {
   );
 
   return { messages, status, error, send, regenerate, stop };
+}
+
+/**
+ * Ask the server to name the session from its first user+assistant exchange
+ * and apply the result. Fail-soft: on any error, non-ok response, or null
+ * title, nothing happens — the instant first-message title set in send()
+ * (titleSource 'auto') already covers the fallback, so a silent skip is the
+ * correct behavior, not a missing title.
+ */
+async function generateTitleForSession(
+  sessionId: string,
+  firstUserText: string,
+  firstAssistantText: string,
+): Promise<void> {
+  try {
+    const response = await fetch("/api/title", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ firstUserText, firstAssistantText }),
+    });
+    if (response.ok) {
+      const body = (await response.json()) as { title?: unknown };
+      if (typeof body.title === "string" && body.title.trim().length > 0) {
+        setGeneratedSessionTitle(sessionId, body.title);
+      }
+    }
+  } catch {
+    // Network/abort failure — leave the instant first-message title in place.
+  }
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
