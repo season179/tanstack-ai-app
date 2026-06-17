@@ -1,4 +1,12 @@
-import { AlertCircle, ArrowDown, ArrowUp, RotateCcw, Square, Zap } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  CalendarClock,
+  RotateCcw,
+  Square,
+  Zap,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useChatShell } from "~/components/chat/chat-shell-context";
@@ -249,6 +257,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
                       }
                       isStreaming={isAssistantActive}
                       onRegenerate={handleRegenerate}
+                      origin={message.origin}
                       reasoning={message.reasoning}
                       sender={message.role}
                       tokenUsage={message.tokenUsage}
@@ -418,6 +427,7 @@ function MessageRow({
   isLastAssistant,
   isStreaming,
   onRegenerate,
+  origin,
   reasoning,
   sender,
   tokenUsage,
@@ -429,6 +439,7 @@ function MessageRow({
   isLastAssistant?: boolean;
   isStreaming?: boolean;
   onRegenerate?: () => void;
+  origin?: "scheduled";
   reasoning?: string;
   sender: "user" | "assistant";
   tokenUsage?: import("~/lib/chat/tool-events").TurnTokenUsage;
@@ -460,6 +471,7 @@ function MessageRow({
         activatedSkill={activatedSkill}
         content={content}
         isStreaming={isStreaming}
+        origin={origin}
         sender={sender}
       />
       {hasToolActivity ? (
@@ -486,11 +498,13 @@ function MessageBubble({
   activatedSkill,
   content,
   isStreaming,
+  origin,
   sender,
 }: {
   activatedSkill?: string;
   content: string;
   isStreaming?: boolean;
+  origin?: "scheduled";
   sender: "user" | "assistant";
 }) {
   const isUser = sender === "user";
@@ -510,6 +524,14 @@ function MessageBubble({
           <span className="inline-flex items-center gap-1 rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[11px] font-medium">
             <Zap aria-hidden="true" className="size-3" />
             {activatedSkill}
+          </span>
+        </div>
+      ) : null}
+      {!isUser && origin === "scheduled" ? (
+        <div className="mb-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+            <CalendarClock aria-hidden="true" className="size-3" />
+            Ran scheduled task
           </span>
         </div>
       ) : null}

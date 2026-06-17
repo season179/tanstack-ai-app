@@ -143,7 +143,14 @@ async function runInstructionTurn(task: ScheduledTask, signal: AbortSignal): Pro
 
   // Fold the stream into a fresh assistant turn. toolSteps/toolSearch/usage/
   // reasoning all land on the same message, mirroring the interactive client.
-  const assistant: ChatMessage = { id: makeMessageId(), role: "assistant", content: "" };
+  // origin='scheduled' tags the turn so the chat surface renders it with a
+  // "Ran scheduled task" badge (and persists the badge across reloads).
+  const assistant: ChatMessage = {
+    id: makeMessageId(),
+    role: "assistant",
+    content: "",
+    origin: "scheduled",
+  };
   let streamError: string | null = null;
   try {
     await readChatStream(response.body, (event) => {

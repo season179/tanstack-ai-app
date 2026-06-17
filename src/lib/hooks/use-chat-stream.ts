@@ -43,6 +43,14 @@ export type ChatMessage = {
    */
   activatedSkill?: string;
   /**
+   * Assistant turns only: set to "scheduled" when this turn was produced by a
+   * scheduled task firing (not an interactive user message). Surfaced as a
+   * "Ran scheduled task" badge above the bubble so a transcript that mixes
+   * user-driven and scheduled-driven turns stays legible. Persisted with the
+   * turn so the badge survives reloads. Omitted for ordinary assistant turns.
+   */
+  origin?: "scheduled";
+  /**
    * Assistant turns only: the tool_call/tool_result pairs the server emitted
    * while producing this reply (the deferred tool-search loop). Empty/omitted
    * for plain text turns. Persisted so a reload keeps the activity trace.
