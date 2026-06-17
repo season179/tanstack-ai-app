@@ -15,6 +15,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { isMobileViewport, useAppShell } from "~/components/app-shell-context";
 import { ThemeToggle } from "~/components/theme-toggle";
 import { Button } from "~/components/ui/button";
+import {
+  formatRelative,
+  groupSessions,
+  parseActiveSessionId,
+  type SessionGroup,
+} from "~/lib/chat/sidebar-grouping";
 import { useChatBusy } from "~/lib/hooks/use-chat-busy";
 import { type SessionSummary, useChatSessions } from "~/lib/hooks/use-chat-sessions";
 import { cn } from "~/lib/utils";
@@ -24,66 +30,6 @@ const NAV_ITEMS = [
   { to: "/tasks", icon: CalendarClock, label: "Scheduled tasks" },
   { to: "/skills", icon: BookOpen, label: "Skills" },
 ] as const;
-
-/** `/chat/<id>` → <id>; everything else → null (no active session highlight). */
-function parseActiveSessionId(pathname: string): string | null {
-  const match = pathname.match(/^\/chat\/([^/]+)$/);
-  return match?.[1] ?? null;
-}
-
-function formatRelative(iso: string): string {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) {
-    return "";
-  }
-  const minutes = Math.round((Date.now() - then) / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(then).toLocaleDateString();
-}
-
-type SessionGroup = {
-  label: string;
-  items: SessionSummary[];
-};
-
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-/**
- * Partition the already-sorted (newest-first) list into Today / Older, keeping
- * order within each group. Matches the reference's sidebar grouping so a long
- * session history stays navigable: today's chats float under a clear label and
- * older ones collapse into a second section instead of one long flat list.
- */
-function groupSessions(sessions: SessionSummary[]): SessionGroup[] {
-  const now = new Date();
-  const today: SessionSummary[] = [];
-  const older: SessionSummary[] = [];
-
-  for (const session of sessions) {
-    const stamp = new Date(session.updatedAt || session.createdAt);
-    if (isSameDay(stamp, now)) {
-      today.push(session);
-    } else {
-      older.push(session);
-    }
-  }
-
-  return [
-    { label: "Today", items: today },
-    { label: "Older", items: older },
-  ].filter((group) => group.items.length > 0);
-}
 
 export function AppSidebar() {
   // Read from the module-level busy signal (not the per-session
@@ -96,7 +42,7 @@ export function AppSidebar() {
   const { sessions, createSession, removeSession, renameSession } = useChatSessions();
 
   const activeSessionId = parseActiveSessionId(location.pathname);
-  const groups = useMemo(() => groupSessions(sessions), [sessions]);
+  const groups = useMemo<SessionGroup[]>(() => groupSessions(sessions), [sessions]);
 
   function goToSession(id: string) {
     // Don't navigate away from the chat that is actively streaming: switching
