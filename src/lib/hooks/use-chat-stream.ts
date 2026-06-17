@@ -84,11 +84,27 @@ type SendOptions = {
   skill?: Skill | null;
 };
 
+type WireMessage = { role: ChatMessage["role"]; content: string };
+
+type RegenerateOptions = {
+  /** The model id the composer's picker chose, or null for the server default. */
+  model?: string | null;
+  /**
+   * Resolves a skill name back to its Skill object so a regenerated turn can
+   * re-inject the activation block the original user turn carried (the block is
+   * never persisted, only the name is). Optional — without it a turn whose user
+   * message activated a skill regenerates without the instructions.
+   */
+  resolveSkill?: (name: string) => Skill | null;
+};
+
 export type UseChatStream = {
   messages: ChatMessage[];
   status: ChatStatus;
   error: string | null;
   send: (text: string, options?: SendOptions) => void;
+  /** Re-runs the last user turn, replacing the trailing assistant reply. */
+  regenerate: (options?: RegenerateOptions) => void;
   stop: () => void;
 };
 
@@ -162,47 +178,16 @@ export function useChatStream(sessionId: string): UseChatStream {
     persist(messagesRef.current);
   }, [persist]);
 
-  const send = useCallback(
-    (text: string, options: SendOptions = {}) => {
-      const trimmed = text.trim();
-      if (trimmed.length === 0 || status === "submitted" || status === "streaming") {
-        return;
-      }
-
-      setError(null);
-
-      const activatedSkill = options.skill?.isEnabled ? options.skill.name : undefined;
-      const userMessage: ChatMessage = {
-        id: makeId(),
-        role: "user",
-        content: trimmed,
-        activatedSkill,
-      };
-      const assistantMessage: ChatMessage = { id: makeId(), role: "assistant", content: "" };
-
-      // Skill activation: the instruction block is prepended to this user turn
-      // on the wire only. It is never stored in `content` (the UI and the
-      // transcript keep the raw /skill-name text), so a reload shows the
-      // original message and the activation badge rather than a wall of XML.
-      const skillBlock = options.skill?.isEnabled
-        ? buildActivatedSkillContent(options.skill)
-        : null;
-      const inject = (text: string) => (skillBlock ? `${skillBlock}\n\n${text}` : text);
-
-      // Capture the outbound history before we append the placeholder assistant
-      // turn: the server reconstructs nothing, so we send the full conversation
-      // minus the empty streaming reply.
-      const outbound = [...messages, userMessage];
-
-      setMessages([...outbound, assistantMessage]);
-      setStatus("submitted");
-
-      // Persist the user turn immediately and float the chat to the top of the
-      // sidebar; auto-title from this first user message if still untitled.
-      persist(outbound);
-      touchSession(sessionId);
-      setSessionTitleFromMessage(sessionId, trimmed);
-
+  /**
+   * Shared streaming core: fetch /api/chat with the already-built wire payload
+   * and fold the SSE frames into the empty assistant placeholder identified by
+   * `assistantId`. Both send() and regenerate() set up their message arrays +
+   * persisted history first, then hand off here so the fetch/parse/finalize
+   * path is written once.
+   */
+  const streamTurn = useCallback(
+    (params: { assistantId: string; model?: string | null; wireMessages: WireMessage[] }) => {
+      const { assistantId, model, wireMessages } = params;
       const controller = new AbortController();
       abortRef.current = controller;
 
@@ -214,11 +199,8 @@ export function useChatStream(sessionId: string): UseChatStream {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               id: sessionId,
-              model: options.model ?? undefined,
-              messages: outbound.map(({ id, role, content }) => ({
-                role,
-                content: id === userMessage.id ? inject(content) : content,
-              })),
+              model: model ?? undefined,
+              messages: wireMessages,
             }),
             signal: controller.signal,
           });
@@ -240,7 +222,6 @@ export function useChatStream(sessionId: string): UseChatStream {
 
         setStatus("streaming");
 
-        const assistantId = assistantMessage.id;
         try {
           await readChatStream(response.body, (event) => {
             if (event.type === "error") {
@@ -321,10 +302,118 @@ export function useChatStream(sessionId: string): UseChatStream {
         setStatus("ready");
       })();
     },
-    [messages, status, persist, sessionId],
+    [persist, sessionId],
   );
 
-  return { messages, status, error, send, stop };
+  const send = useCallback(
+    (text: string, options: SendOptions = {}) => {
+      const trimmed = text.trim();
+      if (trimmed.length === 0 || status === "submitted" || status === "streaming") {
+        return;
+      }
+
+      setError(null);
+
+      const activatedSkill = options.skill?.isEnabled ? options.skill.name : undefined;
+      const userMessage: ChatMessage = {
+        id: makeId(),
+        role: "user",
+        content: trimmed,
+        activatedSkill,
+      };
+      const assistantMessage: ChatMessage = { id: makeId(), role: "assistant", content: "" };
+
+      // Skill activation: the instruction block is prepended to this user turn
+      // on the wire only. It is never stored in `content` (the UI and the
+      // transcript keep the raw /skill-name text), so a reload shows the
+      // original message and the activation badge rather than a wall of XML.
+      const skillBlock = options.skill?.isEnabled
+        ? buildActivatedSkillContent(options.skill)
+        : null;
+
+      // Capture the outbound history before we append the placeholder assistant
+      // turn: the server reconstructs nothing, so we send the full conversation
+      // minus the empty streaming reply.
+      const outbound = [...messages, userMessage];
+
+      setMessages([...outbound, assistantMessage]);
+      setStatus("submitted");
+
+      // Persist the user turn immediately and float the chat to the top of the
+      // sidebar; auto-title from this first user message if still untitled.
+      persist(outbound);
+      touchSession(sessionId);
+      setSessionTitleFromMessage(sessionId, trimmed);
+
+      streamTurn({
+        assistantId: assistantMessage.id,
+        model: options.model,
+        wireMessages: outbound.map(({ id, role, content }) => ({
+          role,
+          content: id === userMessage.id && skillBlock ? `${skillBlock}\n\n${content}` : content,
+        })),
+      });
+    },
+    [messages, status, streamTurn, persist, sessionId],
+  );
+
+  /**
+   * Re-run the last user turn. Drops the trailing assistant reply (whether a
+   * failed/partial turn from an error, or a complete one the user wants
+   * regenerated), rebuilds the wire payload from history, and streams a fresh
+   * reply. Skill activation is re-injected if the last user message carried one
+   * and a resolver is supplied (the injected block is never persisted, only the
+   * name is). No-op while a turn is in flight or when there is no user turn.
+   */
+  const regenerate = useCallback(
+    (options: RegenerateOptions = {}) => {
+      if (status === "submitted" || status === "streaming") {
+        return;
+      }
+
+      // Find the last user turn; everything after it (the assistant reply,
+      // partial or complete) is what we replace.
+      let lastUserIndex = -1;
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (messages[index].role === "user") {
+          lastUserIndex = index;
+          break;
+        }
+      }
+      if (lastUserIndex === -1) {
+        return;
+      }
+
+      const lastUserMessage = messages[lastUserIndex];
+      const history = messages.slice(0, lastUserIndex + 1);
+      const assistantMessage: ChatMessage = { id: makeId(), role: "assistant", content: "" };
+
+      setError(null);
+      setMessages([...history, assistantMessage]);
+      setStatus("submitted");
+      persist(history);
+      touchSession(sessionId);
+
+      // Re-inject the activation block if the original user turn carried a
+      // skill and the caller can resolve it back to a Skill object.
+      const skillName = lastUserMessage.activatedSkill;
+      const skill = skillName ? (options.resolveSkill?.(skillName) ?? null) : null;
+      const skillBlock = skill?.isEnabled ? buildActivatedSkillContent(skill) : null;
+
+      streamTurn({
+        assistantId: assistantMessage.id,
+        model: options.model,
+        wireMessages: history.map(({ id, role, content }) => ({
+          role,
+          content:
+            id === lastUserMessage.id && skillBlock ? `${skillBlock}\n\n${content}` : content,
+        })),
+      });
+    },
+    [messages, status, streamTurn, persist, sessionId],
+  );
+
+  return { messages, status, error, send, regenerate, stop };
 }
 
 async function readErrorMessage(response: Response): Promise<string> {

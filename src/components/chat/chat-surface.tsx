@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowUp, Square, Zap } from "lucide-react";
+import { AlertCircle, ArrowUp, RotateCcw, Square, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useChatShell } from "~/components/chat/chat-shell-context";
@@ -25,7 +25,7 @@ import { cn } from "~/lib/utils";
 const SHELL_COLUMN = "mx-auto w-full max-w-7xl px-4 sm:px-8 lg:px-10";
 
 export function ChatSurface({ sessionId }: { sessionId: string }) {
-  const { messages, status, error, send, stop } = useChatStream(sessionId);
+  const { messages, status, error, send, stop, regenerate } = useChatStream(sessionId);
   const { models, defaultModel, selectedModel, loading, setSelectedModel, ensureLoaded } =
     useModels();
   const { skills } = useSkills();
@@ -66,6 +66,26 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
   const isBusy = status === "submitted" || status === "streaming";
   const canSubmit = input.trim().length > 0 && !isBusy;
   const { setBusy, setUsage } = useChatShell();
+
+  // Resolve a skill name back to its Skill object so a regenerated turn can
+  // re-inject the activation block the original user turn carried (the block is
+  // never persisted, only the name is). Stable across renders since the
+  // underlying list identity is memoized above.
+  const resolveSkill = useCallback(
+    (name: string) => findActivatableSkill(activatableSkills, name),
+    [activatableSkills],
+  );
+  const handleRegenerate = useCallback(
+    () => regenerate({ model: selectedModel, resolveSkill }),
+    [regenerate, selectedModel, resolveSkill],
+  );
+
+  // The last assistant message is the one a regenerate acts on; only surface
+  // the affordance when the conversation ends on a real (non-empty) assistant
+  // turn and nothing is in flight.
+  const lastMessage = messages.at(-1);
+  const canRegenerateLast =
+    !isBusy && lastMessage?.role === "assistant" && lastMessage.content.trim().length > 0;
 
   // Mirror the streaming state up so the route header can show Ready/Responding.
   useEffect(() => {
@@ -180,7 +200,13 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
                     key={message.id}
                     activatedSkill={message.activatedSkill}
                     content={message.content}
+                    isLastAssistant={
+                      canRegenerateLast &&
+                      message.id === lastMessage?.id &&
+                      message.role === "assistant"
+                    }
                     isStreaming={isAssistantActive}
+                    onRegenerate={handleRegenerate}
                     reasoning={message.reasoning}
                     sender={message.role}
                     tokenUsage={message.tokenUsage}
@@ -236,6 +262,9 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
                 <p className="font-medium">Chat request failed</p>
                 <p className="mt-1 break-words text-destructive/80">{error}</p>
               </div>
+              <Button onClick={handleRegenerate} size="sm" type="button" variant="outline">
+                Retry
+              </Button>
             </div>
           ) : null}
 
@@ -331,7 +360,9 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
 function MessageRow({
   activatedSkill,
   content,
+  isLastAssistant,
   isStreaming,
+  onRegenerate,
   reasoning,
   sender,
   tokenUsage,
@@ -340,7 +371,9 @@ function MessageRow({
 }: {
   activatedSkill?: string;
   content: string;
+  isLastAssistant?: boolean;
   isStreaming?: boolean;
+  onRegenerate?: () => void;
   reasoning?: string;
   sender: "user" | "assistant";
   tokenUsage?: import("~/lib/chat/tool-events").TurnTokenUsage;
@@ -379,6 +412,16 @@ function MessageRow({
       ) : null}
       {usageLine.length > 0 ? (
         <p className="px-1 text-[11px] tabular-nums text-muted-foreground/80">{usageLine}</p>
+      ) : null}
+      {isLastAssistant && onRegenerate ? (
+        <button
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          onClick={onRegenerate}
+          type="button"
+        >
+          <RotateCcw aria-hidden="true" className="size-3" />
+          Regenerate
+        </button>
       ) : null}
     </div>
   );
