@@ -1,5 +1,13 @@
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
-
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { setChatBusySignal } from "~/lib/chat/busy-signal";
 import type { ChatUsageSummary, TurnTokenUsage } from "~/lib/chat/tool-events";
 
 /**
@@ -35,6 +43,17 @@ export function ChatShellProvider({ children }: { children: ReactNode }) {
   // Stable identities so ChatSurface's effect dependencies don't refire per render.
   const setBusy = useCallback((busy: boolean) => setChatBusy(busy), []);
   const setUsage = useCallback((next: ChatUsageSummary) => setUsageState(next), []);
+
+  // Mirror the per-session busy flag into a module-level signal so the sidebar
+  // (which lives outside this provider, in the root AppShell) can guard against
+  // tearing down an in-flight stream — the reference's chatBusy guard on
+  // startNewSession / selectSession / deleteSession. Reset on unmount (e.g. a
+  // chat switch) so a stale true can never leak into the next session's view.
+  useEffect(() => {
+    setChatBusySignal(chatBusy);
+    return () => setChatBusySignal(false);
+  }, [chatBusy]);
+
   const value = useMemo<ChatShellValue>(
     () => ({ chatBusy, setBusy, usage, setUsage }),
     [chatBusy, setBusy, usage, setUsage],

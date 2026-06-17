@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isMobileViewport, useAppShell } from "~/components/app-shell-context";
 import { Button } from "~/components/ui/button";
+import { useChatBusy } from "~/lib/hooks/use-chat-busy";
 import { type SessionSummary, useChatSessions } from "~/lib/hooks/use-chat-sessions";
 import { cn } from "~/lib/utils";
 
@@ -84,6 +85,10 @@ function groupSessions(sessions: SessionSummary[]): SessionGroup[] {
 }
 
 export function AppSidebar() {
+  // Read from the module-level busy signal (not the per-session
+  // ChatShellProvider, which lives below the sidebar in the tree) so the
+  // sidebar can guard against tearing down an in-flight stream.
+  const chatBusy = useChatBusy();
   const { sidebarOpen: open, toggleSidebar, closeSidebar } = useAppShell();
   const location = useRouterState({ select: (state) => state.location });
   const navigate = useNavigate();
@@ -93,6 +98,12 @@ export function AppSidebar() {
   const groups = useMemo(() => groupSessions(sessions), [sessions]);
 
   function goToSession(id: string) {
+    // Don't navigate away from the chat that is actively streaming: switching
+    // remounts ChatSurface (keyed by sessionId) and would tear down the live
+    // turn. Navigating back to the already-active chat is a no-op and safe.
+    if (chatBusy && id !== activeSessionId) {
+      return;
+    }
     void navigate({ to: "/chat/$sessionId", params: { sessionId: id } });
     if (isMobileViewport()) {
       closeSidebar();
@@ -100,11 +111,22 @@ export function AppSidebar() {
   }
 
   function handleNewChat() {
+    // Mirrors the reference's startNewSession chatBusy guard: a new chat
+    // navigates and would remount ChatSurface mid-stream.
+    if (chatBusy) {
+      return;
+    }
     const id = createSession();
     goToSession(id);
   }
 
   function handleDeleteSession(id: string, title: string) {
+    // Can't delete the chat that is actively streaming — it would remount/
+    // tear down the live ChatSurface and lose the in-flight turn (mirrors the
+    // shell guard). Deleting any other (non-streaming) chat is fine.
+    if (chatBusy && id === activeSessionId) {
+      return;
+    }
     if (!window.confirm(`Delete '${title}'? This removes it from this browser.`)) {
       return;
     }
@@ -186,7 +208,9 @@ export function AppSidebar() {
 
           <div className="px-2 pb-2">
             <Button
+              aria-label="New chat"
               className={open ? "w-full justify-start gap-2" : "mx-auto size-9"}
+              disabled={chatBusy}
               onClick={handleNewChat}
               size={open ? "sm" : "icon"}
               title={open ? undefined : "New chat"}
@@ -213,6 +237,7 @@ export function AppSidebar() {
                     <ul className="space-y-0.5">
                       {group.items.map((session) => (
                         <SessionRow
+                          busy={chatBusy}
                           isActive={session.id === activeSessionId}
                           key={session.id}
                           onDelete={handleDeleteSession}
@@ -236,6 +261,7 @@ export function AppSidebar() {
 type SessionRowProps = {
   session: SessionSummary;
   isActive: boolean;
+  busy: boolean;
   onSelect: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string, title: string) => void;
@@ -247,7 +273,7 @@ type SessionRowProps = {
  * keystroke. Commit on Enter/blur, cancel on Escape; a no-op commit (blank or
  * unchanged) leaves the stored title alone.
  */
-function SessionRow({ session, isActive, onSelect, onRename, onDelete }: SessionRowProps) {
+function SessionRow({ session, isActive, busy, onSelect, onRename, onDelete }: SessionRowProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -324,6 +350,7 @@ function SessionRow({ session, isActive, onSelect, onRename, onDelete }: Session
           "min-w-0 flex-1 py-2 pl-2.5 pr-7 text-left",
           isActive ? "text-foreground" : "text-muted-foreground",
         )}
+        disabled={busy && !isActive}
         onClick={() => onSelect(session.id)}
         title={session.title}
         type="button"
@@ -357,7 +384,8 @@ function SessionRow({ session, isActive, onSelect, onRename, onDelete }: Session
         </Button>
         <Button
           aria-label={`Delete ${session.title}`}
-          className="size-7 text-muted-foreground hover:text-destructive"
+          className="size-7 text-muted-foreground hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={busy && isActive}
           onClick={() => onDelete(session.id, session.title)}
           size="icon"
           title="Delete chat"
