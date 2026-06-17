@@ -2,16 +2,19 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   BookOpen,
   CalendarClock,
+  Check,
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Plus,
   Trash2,
 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { isMobileViewport, useAppShell } from "~/components/app-shell-context";
 import { Button } from "~/components/ui/button";
-import { useChatSessions } from "~/lib/hooks/use-chat-sessions";
+import { type SessionSummary, useChatSessions } from "~/lib/hooks/use-chat-sessions";
 import { cn } from "~/lib/utils";
 
 const NAV_ITEMS = [
@@ -45,7 +48,7 @@ export function AppSidebar() {
   const { sidebarOpen: open, toggleSidebar, closeSidebar } = useAppShell();
   const location = useRouterState({ select: (state) => state.location });
   const navigate = useNavigate();
-  const { sessions, createSession, removeSession } = useChatSessions();
+  const { sessions, createSession, removeSession, renameSession } = useChatSessions();
 
   const activeSessionId = parseActiveSessionId(location.pathname);
 
@@ -163,61 +166,16 @@ export function AppSidebar() {
                 </p>
               ) : (
                 <ul className="space-y-0.5">
-                  {sessions.map((session) => {
-                    const isActive = session.id === activeSessionId;
-                    return (
-                      <li key={session.id}>
-                        <div
-                          aria-current={isActive ? "true" : undefined}
-                          className={cn(
-                            "group relative flex items-center rounded-md pr-1 outline-none transition-colors focus-within:ring-2 focus-within:ring-primary/30",
-                            isActive ? "bg-muted" : "hover:bg-muted/60",
-                          )}
-                        >
-                          <button
-                            className={cn(
-                              "min-w-0 flex-1 py-2 pl-2.5 pr-7 text-left",
-                              isActive ? "text-foreground" : "text-muted-foreground",
-                            )}
-                            onClick={() => goToSession(session.id)}
-                            title={session.title}
-                            type="button"
-                          >
-                            <span className="flex items-center gap-2">
-                              <MessageSquare
-                                aria-hidden="true"
-                                className={cn("size-3.5 shrink-0", isActive && "text-primary")}
-                              />
-                              <span
-                                className={cn(
-                                  "truncate text-sm",
-                                  isActive && "font-medium text-foreground",
-                                )}
-                              >
-                                {session.title}
-                              </span>
-                            </span>
-                            {session.updatedAt ? (
-                              <span className="mt-0.5 block pl-5.5 text-[11px] text-muted-foreground/80">
-                                {formatRelative(session.updatedAt)}
-                              </span>
-                            ) : null}
-                          </button>
-                          <Button
-                            aria-label={`Delete ${session.title}`}
-                            className="size-7 shrink-0 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
-                            onClick={() => handleDeleteSession(session.id, session.title)}
-                            size="icon"
-                            title="Delete chat"
-                            type="button"
-                            variant="ghost"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </div>
-                      </li>
-                    );
-                  })}
+                  {sessions.map((session) => (
+                    <SessionRow
+                      isActive={session.id === activeSessionId}
+                      key={session.id}
+                      onDelete={handleDeleteSession}
+                      onRename={renameSession}
+                      onSelect={goToSession}
+                      session={session}
+                    />
+                  ))}
                 </ul>
               )}
             </nav>
@@ -225,5 +183,143 @@ export function AppSidebar() {
         </aside>
       </div>
     </>
+  );
+}
+
+type SessionRowProps = {
+  session: SessionSummary;
+  isActive: boolean;
+  onSelect: (id: string) => void;
+  onRename: (id: string, title: string) => void;
+  onDelete: (id: string, title: string) => void;
+};
+
+/**
+ * One chat in the sidebar: an inline-renameable row. The editing state lives
+ * here (not in the parent) so only the row being renamed re-renders on each
+ * keystroke. Commit on Enter/blur, cancel on Escape; a no-op commit (blank or
+ * unchanged) leaves the stored title alone.
+ */
+function SessionRow({ session, isActive, onSelect, onRename, onDelete }: SessionRowProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  function startEditing() {
+    setDraft(session.title);
+    setEditing(true);
+  }
+
+  function commit() {
+    const next = draft.trim();
+    setEditing(false);
+    if (next && next !== session.title) {
+      onRename(session.id, next);
+    }
+  }
+
+  if (editing) {
+    return (
+      <li>
+        <div className="flex items-center gap-1 rounded-md bg-muted px-2 py-1">
+          <input
+            aria-label="Rename chat"
+            className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none"
+            maxLength={80}
+            onBlur={commit}
+            onChange={(event) => setDraft(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commit();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                setEditing(false);
+              }
+            }}
+            ref={inputRef}
+            value={draft}
+          />
+          <button
+            aria-label="Save name"
+            className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground"
+            // onMouseDown (not onClick) so it fires before the input's onBlur cancels.
+            onMouseDown={(event) => {
+              event.preventDefault();
+              commit();
+            }}
+            type="button"
+          >
+            <Check className="size-3.5" />
+          </button>
+        </div>
+      </li>
+    );
+  }
+
+  return (
+    <li
+      aria-current={isActive ? "true" : undefined}
+      className={cn(
+        "group relative flex items-center rounded-md pr-1 outline-none transition-colors focus-within:ring-2 focus-within:ring-primary/30",
+        isActive ? "bg-muted" : "hover:bg-muted/60",
+      )}
+    >
+      <button
+        className={cn(
+          "min-w-0 flex-1 py-2 pl-2.5 pr-7 text-left",
+          isActive ? "text-foreground" : "text-muted-foreground",
+        )}
+        onClick={() => onSelect(session.id)}
+        title={session.title}
+        type="button"
+      >
+        <span className="flex items-center gap-2">
+          <MessageSquare
+            aria-hidden="true"
+            className={cn("size-3.5 shrink-0", isActive && "text-primary")}
+          />
+          <span className={cn("truncate text-sm", isActive && "font-medium text-foreground")}>
+            {session.title}
+          </span>
+        </span>
+        {session.updatedAt ? (
+          <span className="mt-0.5 block pl-5.5 text-[11px] text-muted-foreground/80">
+            {formatRelative(session.updatedAt)}
+          </span>
+        ) : null}
+      </button>
+      <div className="flex shrink-0 items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <Button
+          aria-label={`Rename ${session.title}`}
+          className="size-7 text-muted-foreground hover:text-foreground"
+          onClick={startEditing}
+          size="icon"
+          title="Rename chat"
+          type="button"
+          variant="ghost"
+        >
+          <Pencil className="size-3.5" />
+        </Button>
+        <Button
+          aria-label={`Delete ${session.title}`}
+          className="size-7 text-muted-foreground hover:text-destructive"
+          onClick={() => onDelete(session.id, session.title)}
+          size="icon"
+          title="Delete chat"
+          type="button"
+          variant="ghost"
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
+    </li>
   );
 }
