@@ -12,22 +12,23 @@
  *   - `tickTasks` promotes any task whose projected fire is now due into a
  *     `running` run, advances `lastFiredAt`, and fast-forwards past missed
  *     cron fires so a long browser absence can't backfill dozens of runs.
- *   - a completion pass then flips runs that have been "running" longer than
- *     `RUN_DURATION_MS` to `completed` with a synthetic verdict (there is no
- *     agent tool loop to actually execute the instruction — the verdict is
- *     deterministic placeholder text, the documented fidelity tradeoff).
+ *   - promoting a run fires `executeScheduledRun` (run-instruction.ts), which
+ *     runs the task's instruction against `/api/chat`, appends the agent's
+ *     reply to the task's home chat session, and settles the run with the real
+ *     assistant text (or `failed` on error). It owns its own timeout +
+ *     completion, so this ticker does NOT settle runs itself — except for a
+ *     safety net that mops up runs stranded by a crashed/aborted executor.
  *
  * The ticker is started lazily by the use-tasks hook; if no tab is open, no
  * fires happen (a fundamental limit of browser-only scheduling).
  */
 
 import { CronExpressionParser } from "cron-parser";
-
+import { executeScheduledRun } from "./run-instruction";
 import {
   completeRun,
   ensureRun,
   getRunsSnapshot,
-  getTask,
   getTasksSnapshot,
   markTaskFired,
   updateTask,
@@ -39,8 +40,11 @@ import type {
   UpcomingScheduledJob,
 } from "./types";
 
-/** How long a run stays "running" before the completion pass settles it. */
-export const RUN_DURATION_MS = 3000;
+/** Safety net: a run stranded "running" longer than this is settled as
+ *  failed — the executor died (tab closed mid-run, an unhandled throw) or the
+ *  run predates the real-execution wiring. Far longer than run-instruction's
+ *  own RUN_TIMEOUT_MS so live executions are never mopped up. */
+export const RUN_TIMEOUT_FALLBACK_MS = 10 * 60_000;
 /** Ticker interval — short enough that a fire looks live on the board. */
 const TICK_INTERVAL_MS = 4000;
 
@@ -78,8 +82,9 @@ export function projectNextFire(task: ScheduledTask): Date | null {
 }
 
 /**
- * Promote due tasks into runs and settle aged runs. Returns the count of runs
- * mutated, purely for diagnostics. Safe to call on the server (no-op).
+ * Promote due tasks into runs (firing real execution) and mop up stranded
+ * runs. Returns the count of runs mutated, purely for diagnostics. Safe to
+ * call on the server (no-op).
  */
 export function tickTasks(now: Date = new Date()): number {
   if (typeof window === "undefined") {
@@ -89,7 +94,7 @@ export function tickTasks(now: Date = new Date()): number {
   let mutated = 0;
   const nowMs = now.getTime();
 
-  // 1. Fire due tasks.
+  // 1. Fire due tasks: promote to a running run and kick off real execution.
   for (const task of getTasksSnapshot()) {
     if (!task.isEnabled) {
       continue;
@@ -100,9 +105,24 @@ export function tickTasks(now: Date = new Date()): number {
     }
 
     const fireIso = fire.toISOString();
-    ensureRun(task, fireIso);
+    const run = ensureRun(task, fireIso);
     markTaskFired(task.id, fireIso);
     mutated += 1;
+
+    // Fire the real agent run for this turn. Fire-and-forget: the executor
+    // owns its own timeout + completion (and is idempotent per run id, so a
+    // duplicate fire or re-tick can't double-run it).
+    void executeScheduledRun(run, task).catch((error) => {
+      // Belt-and-suspenders: executeScheduledRun is fail-soft (it always
+      // settles the run itself), but guard so an unexpected throw can never
+      // leave the run stuck "running" past the fallback timeout below.
+      completeRun(
+        run.id,
+        "failed",
+        null,
+        error instanceof Error ? error.message : "Scheduled run crashed.",
+      );
+    });
 
     if (task.scheduleType === "once") {
       // A one-off is consumed by its single fire.
@@ -119,24 +139,19 @@ export function tickTasks(now: Date = new Date()): number {
     }
   }
 
-  // 2. Settle aged runs with a synthetic verdict.
+  // 2. Safety net: settle any run still "running" past the fallback horizon.
+  //    The executor settles its own runs on success/error/timeout, so this only
+  //    catches runs whose executor died (tab closed mid-run, a crash) or legacy
+  //    runs created before real execution landed.
   for (const run of getRunsSnapshot()) {
     if (run.status !== "running") {
       continue;
     }
     const ageMs = nowMs - new Date(run.startedAt).getTime();
-    if (ageMs < RUN_DURATION_MS) {
+    if (ageMs < RUN_TIMEOUT_FALLBACK_MS) {
       continue;
     }
-    const task = getTask(run.taskId);
-    const instruction = task?.payload.instruction ?? "";
-    const summary = instruction.length > 80 ? `${instruction.slice(0, 80)}…` : instruction;
-    completeRun(
-      run.id,
-      "completed",
-      { statusUpdate: summary ? `Acknowledged: ${summary}` : "Check-in completed." },
-      null,
-    );
+    completeRun(run.id, "failed", null, "Run did not complete.");
     mutated += 1;
   }
 

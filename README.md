@@ -63,8 +63,13 @@ Feature-complete with the reference's chat-surface thesis:
   `/skill-name` composer command or, in the reference, by agent-driven
   `skill_search` / `skill_get_content` tools.
 - Scheduled tasks (localStorage + a client-side cron ticker) with a live
-  Running now / Up next / Past runs board and a create dialog.
+  Running now / Up next / Past runs board and a create dialog. When a task
+  fires, its instruction runs against `/api/chat` and the model's reply is
+  appended to the task's own chat transcript ("View transcript" on the board),
+  so a scheduled fire produces a real agent turn rather than a placeholder.
 
-Faithful within the no-backend constraint: skills and scheduled tasks are
-browser-local (no Postgres / pg-boss worker), so the reference's server-side
-scheduled-task-runs-into-a-session pattern is intentionally out of scope.
+Faithful within the no-backend constraint: skills are browser-local (no
+Postgres), and scheduled tasks run only while a tab is open — but they now
+execute a real model turn per fire and write it into a home chat session
+(the reference's scheduled-task-runs-into-a-session pattern), client-side,
+reusing the same `/api/chat` endpoint as the interactive chat.

@@ -9,6 +9,11 @@
  * are read on demand by the overview builder.
  */
 
+import {
+  createSession as createHomeSession,
+  deleteSession as deleteHomeSession,
+  renameSession as renameHomeSession,
+} from "~/lib/chat/sessions-store";
 import type {
   CreateScheduledTaskInput,
   ScheduledTask,
@@ -19,6 +24,8 @@ import type {
 const TASKS_KEY = "tanstack-ai-app:scheduled-tasks";
 const RUNS_KEY = "tanstack-ai-app:scheduled-task-runs";
 const MAX_RUNS = 200;
+/** Fallback home-session title when a task is created without one. */
+const DEFAULT_TASK_TITLE = "Scheduled task";
 
 type Listener = () => void;
 
@@ -200,6 +207,16 @@ export function getTask(id: string): ScheduledTask | null {
 
 export function createTask(input: CreateScheduledTaskInput): ScheduledTask {
   const now = nowIso();
+  // Every task owns a home chat session its scheduled runs append their
+  // transcript to (mirrors the reference's home_session_id). Mint one on
+  // create so the board's "View transcript" button is always meaningful and
+  // the scheduler has somewhere to write real agent replies. Named after the
+  // task and pinned as 'manual' so the interactive AI titler never clobbers it.
+  const homeSessionId =
+    input.homeSessionId ?? createHomeSession(input.title || DEFAULT_TASK_TITLE).id;
+  if (input.title) {
+    renameHomeSession(homeSessionId, input.title);
+  }
   const task: ScheduledTask = {
     id: newId(),
     title: input.title,
@@ -217,7 +234,7 @@ export function createTask(input: CreateScheduledTaskInput): ScheduledTask {
     createdAt: now,
     updatedAt: now,
     lastFiredAt: null,
-    homeSessionId: input.homeSessionId ?? null,
+    homeSessionId,
   };
   flushTasks([task, ...getTasksSnapshot()]);
   return task;
@@ -243,9 +260,15 @@ export function updateTask(id: string, input: UpdateScheduledTaskInput): Schedul
 }
 
 export function deleteTask(id: string): void {
-  flushTasks(getTasksSnapshot().filter((task) => task.id !== id));
+  const task = getTask(id);
+  flushTasks(getTasksSnapshot().filter((t) => t.id !== id));
   // Cascade: drop this task's runs too so the board doesn't orphan history.
   flushRuns(getRunsSnapshot().filter((run) => run.taskId !== id));
+  // Cascade: also remove the task's home chat session + its transcript so the
+  // sidebar doesn't keep an orphaned "task transcript" after deletion.
+  if (task?.homeSessionId) {
+    deleteHomeSession(task.homeSessionId);
+  }
 }
 
 // --- Run log (written by the scheduler tick) --------------------------------

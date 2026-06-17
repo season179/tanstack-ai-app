@@ -345,8 +345,8 @@ export function CreateTaskDialog({
               value={draft.instruction}
             />
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Runs settle as a synthetic verdict — there is no agent tool loop to execute it in this
-              port.
+              When this task fires, the instruction runs against the chat model and the reply is
+              written to the task's transcript.
             </p>
             {errors.instruction ? (
               <p className="mt-1 text-[11px] font-medium text-destructive" role="alert">
