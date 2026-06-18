@@ -365,7 +365,16 @@ actions right cluster with the actions cluster only rendering when actions
 are supplied, the `banner` landmark, and the runtime status dot —
 `aria-hidden` so screen readers rely on the label, `size-1.5` for the status
 indicator, and the `animate-pulse` gate that pulses only while the page is
-actively working).
+actively working), and the `Button` design-system component (the cva
+resolver's 4 variants × 3 sizes = 12 distinct class combinations, the
+default-variant/default-size fallbacks, the load-bearing distinction that
+`buttonVariants()` only concatenates classes while the `<Button>` component's
+`cn()` wrapper runs tailwind-merge to strip overridden utilities like the
+`h-10`/`px-4` the `icon` size overrides, the caller-`className` override
+semantics where a conflicting caller utility wins and a non-conflicting one
+appends, and the prop-forwarding surface — `onClick` / `type` / `disabled` /
+`aria-*` / `data-*` / `title` all reach the underlying `<button>` while
+`variant` / `size` are consumed by cva and never leak onto the DOM).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
