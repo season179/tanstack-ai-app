@@ -167,7 +167,6 @@ export function AppSidebar() {
               <Plus className="size-4" />
               {open ? "New chat" : null}
             </Button>
-            <ThemeToggle withLabel={open} />
           </div>
 
           {open ? (
@@ -199,7 +198,19 @@ export function AppSidebar() {
                 ))
               )}
             </nav>
-          ) : null}
+          ) : (
+            // Docked rail still needs something to take the flex space the chat
+            // list occupies when expanded, so the theme control stays pinned to
+            // the bottom rather than floating up under "New chat".
+            <div className="min-h-0 flex-1" />
+          )}
+
+          {/* Footer control. Pinned to the bottom by the flex-1 region above;
+              the segmented selector needs the full panel width, so the rail gets
+              the single cycling icon instead. */}
+          <div className="border-t border-border/70 px-2 py-2">
+            <ThemeToggle withLabel={open} />
+          </div>
         </aside>
       </div>
     </>

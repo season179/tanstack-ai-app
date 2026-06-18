@@ -278,7 +278,20 @@ constraint errors, and the `aria-invalid` field marking) without calling
 (title trimming, the scheduleType/runAt/cron field wiring, and the
 close-on-success) via both the Create-button click and the form `onSubmit`;
 and the title/instruction field binding + the `TITLE_MAX`/`INSTRUCTION_MAX`
-`maxLength` caps).
+`maxLength` caps), and the `ThemeToggle` sidebar selector (the two-shape theme
+affordance ported from the reference's commit 213e0af: the segmented
+`Light | Dark | System` control when the sidebar is expanded
+(`withLabel`), where the active segment reads as selection via
+`aria-pressed` + the solid `bg-background` on the muted track and each
+segment is a one-tap `setTheme`, and the single cycling icon when the rail
+is docked (too narrow for three segments) that advances light → dark →
+system → light; pinned via the React Testing Library harness against the
+real `ThemeProvider`: the three labeled segments, the `aria-pressed` active
+contract derived from the stored preference (defaulting to System), the
+`setTheme` → localStorage persistence + `.dark`-class application on click,
+the active-only `bg-background` styling, the rail's single-button shape +
+derived `aria-label`/`title`, and the light → dark → system → light cycle
+across repeated clicks).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
@@ -294,7 +307,9 @@ baseline), or `none`/`off` to disable the tool loop entirely.
 Feature-complete with the reference's chat-surface thesis:
 
 - App chrome (collapsible sidebar, header, /, /tasks, /skills, /chat/$sessionId)
-  on the OKLCH design system.
+  on the OKLCH design system, with light/dark/system theming (a no-dep
+  ThemeProvider replacing next-themes, a no-flash inline script, and a
+  segmented Light|Dark|System selector pinned to the sidebar footer).
 - Streaming chat (no AI SDK): OpenRouter over a self-owned SSE protocol, with
   multi-session localStorage persistence, AI-generated session titles (with a
   provenance-tracked instant first-message fallback), inline rename, smart
