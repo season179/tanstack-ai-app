@@ -9,9 +9,10 @@ import { dedupeMessagesById } from "~/lib/chat/messages";
 import { type ChatUsageSummary, sumUsage } from "~/lib/chat/tool-events";
 import { useChatStream } from "~/lib/hooks/use-chat-stream";
 import { useModels } from "~/lib/hooks/use-models";
+import { useSkillAutocomplete } from "~/lib/hooks/use-skill-autocomplete";
 import { useSkills } from "~/lib/hooks/use-skills";
 import { findActivatableSkill } from "~/lib/skills/activation";
-import { parsePartialSkillCommand, parseSkillCommand } from "~/lib/skills/slash-command";
+import { parseSkillCommand } from "~/lib/skills/slash-command";
 import { cn } from "~/lib/utils";
 
 // Shared horizontal framing: same centered column + gutters the rest of the app
@@ -52,22 +53,12 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
   // --- Skill slash-command autocomplete (/skill-name) ---------------------
   // The catalog is the user's enabled skills; only they can be activated.
   const activatableSkills = useMemo(() => skills.filter((skill) => skill.isEnabled), [skills]);
-  const skillQuery = parsePartialSkillCommand(input);
-  const skillMatches = useMemo(
-    () =>
-      skillQuery === null
-        ? []
-        : activatableSkills.filter((skill) => skill.name.startsWith(skillQuery)),
-    [activatableSkills, skillQuery],
-  );
-  const [skillMenuDismissed, setSkillMenuDismissed] = useState(false);
-  const [activeSkillIndex, setActiveSkillIndex] = useState(0);
-  const isSkillMenuOpen = skillQuery !== null && skillMatches.length > 0 && !skillMenuDismissed;
-  const highlightedSkillIndex = Math.min(activeSkillIndex, Math.max(skillMatches.length - 1, 0));
 
-  const acceptSkill = useCallback((name: string) => {
+  // Accepting a skill replaces the composer with "/name " and refocuses. The
+  // autocomplete hook owns the menu's open/dismissed/highlight state and
+  // delegates the input mutation + focus back to us via onAccept.
+  const handleSkillAccept = useCallback((name: string) => {
     setInput(`/${name} `);
-    setSkillMenuDismissed(true);
     requestAnimationFrame(() => {
       const element = inputRef.current;
       if (!element || element.disabled) {
@@ -77,6 +68,21 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
       element.setSelectionRange(element.value.length, element.value.length);
     });
   }, []);
+
+  const {
+    skillMatches,
+    isSkillMenuOpen,
+    highlightedSkillIndex,
+    accept,
+    dismiss,
+    resetMenu,
+    clearDismissed,
+    moveHighlight,
+  } = useSkillAutocomplete({
+    input,
+    activatableSkills,
+    onAccept: handleSkillAccept,
+  });
 
   const isBusy = status === "submitted" || status === "streaming";
   const canSubmit = input.trim().length > 0 && !isBusy;
@@ -214,7 +220,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
     const skill = skillName ? findActivatableSkill(activatableSkills, skillName) : null;
     send(text, { model: selectedModel, skill });
     setInput("");
-    setSkillMenuDismissed(false);
+    clearDismissed();
     // The user just sent: re-pin so the streaming reply stays in view even if
     // they had scrolled up to quote history.
     setIsAtBottom(true);
@@ -305,7 +311,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
                     index === highlightedSkillIndex ? "bg-muted" : "hover:bg-muted/60",
                   )}
                   key={skill.id}
-                  onClick={() => acceptSkill(skill.name)}
+                  onClick={() => accept(skill.name)}
                   role="option"
                   type="button"
                 >
@@ -342,29 +348,25 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
                 setInput(event.currentTarget.value);
                 // Any keystroke re-opens a dismissed menu and resets the
                 // highlight (Escape is the only dismiss; the next char reopens).
-                setSkillMenuDismissed(false);
-                setActiveSkillIndex(0);
+                resetMenu();
               }}
               onKeyDown={(event) => {
                 if (isSkillMenuOpen) {
                   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                     event.preventDefault();
-                    const delta = event.key === "ArrowDown" ? 1 : -1;
-                    setActiveSkillIndex(
-                      (highlightedSkillIndex + delta + skillMatches.length) % skillMatches.length,
-                    );
+                    moveHighlight(event.key === "ArrowDown" ? 1 : -1);
                     return;
                   }
 
                   if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
                     event.preventDefault();
-                    acceptSkill(skillMatches[highlightedSkillIndex].name);
+                    accept(skillMatches[highlightedSkillIndex].name);
                     return;
                   }
 
                   if (event.key === "Escape") {
                     event.preventDefault();
-                    setSkillMenuDismissed(true);
+                    dismiss();
                     return;
                   }
                 }

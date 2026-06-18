@@ -178,7 +178,18 @@ across `updatedAt` bumps, `updateTask` / `removeTask` delegation including
 the unknown-id `null` return + content preservation, and the
 `useGoToTranscript` navigation wrapper — navigate on a real id, no-op on
 null, stable callback identity), and `useHydrated` (the post-mount true +
-rerender / remount stability), and — extending that React Testing Library
+rerender / remount stability), and `useSkillAutocomplete` (the composer's
+`/skill-name` autocomplete state machine extracted from `chat-surface`:
+menu visibility driven by `parsePartialSkillCommand` — closed for non-command
+input, open with all activatable skills on a bare slash, prefix-filtered by the
+partial name, and closed once a space follows it or no name matches; the
+dismiss / `resetMenu` / `clearDismissed` semantics — Escape dismisses, onChange
+reopens + zeroes the highlight, the after-send path reopens without resetting
+the highlight; the clamp-on-shrink so a narrowing query can't outrun the
+highlight; the `+ matches.length`-before-modulo wrap-around keyboard
+navigation; `accept` firing `onAccept` + dismissing; and referential stability
+of `skillMatches` + the empty-deps callbacks + `accept` while `onAccept` is
+stable), and — extending that React Testing Library
 harness from `renderHook` to `render`/`screen`/`fireEvent` — the interactive
 UI components,
 starting with the `ModelPicker` (the composer's searchable, keyboard-navigable,
