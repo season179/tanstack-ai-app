@@ -359,7 +359,26 @@ streaming or for empty usage so it never flickers a mid-stream `0 · 0 · 0`),
 the footer actions cluster (`Copy` on every settled non-empty assistant turn,
 `Regenerate` only on the last one with a callback and never while streaming),
 and the `MessageCopyButton`'s clipboard write + 1.5s `Copied` confirmation
-flash + fail-soft on a rejecting clipboard API), and the app-chrome context
+flash + fail-soft on a rejecting clipboard API), and the `ChatSurface`
+itself — the primary chat surface's orchestration that the extracted
+sub-pieces plug into (mocked `useChatStream` / `useModels` / `useSkills` /
+`useChatShell` while the real `useSkillAutocomplete` + `findActivatableSkill` /
+`parseSkillCommand` run, with `MessageRow` / `ModelPicker` stubbed as markers):
+the empty-state hero vs. message-list switch, the extra `submitted`-status
+streaming placeholder, the composer input binding + the `/skill-name`-hint
+placeholder, the Send-button disabled-when-empty / disabled-when-whitespace /
+disabled-when-busy state, Enter-to-send (with trimming + the selected model)
++ Shift+Enter newline + the busy guard + click-to-submit, the leading
+`/skill-name` resolution to an enabled skill on send (with unknown names
+falling back to raw text), the Stop button's `stop()` wiring, the skill
+autocomplete menu (open on `/` prefix, enabled-only filtering, Escape
+dismiss, ArrowDown/ArrowUp navigation with `aria-selected` highlighting,
+Enter/click accept that replaces the input with `/name ` without sending),
+the error banner + Retry→`regenerate`, the scroll-to-latest pinning (button
+appears when the user scrolls up from the bottom, absent in the empty state),
+and the shell reporting effects (`setBusy(false)` on idle mount, `setBusy(true)`
+while streaming, and `setUsage` reflecting the persisted assistant-usage
+summary), and the app-chrome context
 + header components the whole UI is mounted under — the `AppShellProvider` /
 `useAppShell` root context (the sidebar open/close state the `AppShellFrame`
 reads for its `--sidebar-width` / `--sidebar-rail` CSS custom properties and
