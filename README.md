@@ -410,7 +410,34 @@ default-variant/default-size fallbacks, the load-bearing distinction that
 semantics where a conflicting caller utility wins and a non-conflicting one
 appends, and the prop-forwarding surface — `onClick` / `type` / `disabled` /
 `aria-*` / `data-*` / `title` all reach the underlying `<button>` while
-`variant` / `size` are consumed by cva and never leak onto the DOM).
+`variant` / `size` are consumed by cva and never leak onto the DOM), and
+the Skills page's detail + editor components extracted from
+`src/routes/skills.tsx` (the largest untested route at 726 lines, now
+reduced to a 239-line page-orchestration shell): the `SkillDetail`
+read-only view (the skill name heading, the Enabled/Disabled badge, the
+markdown-rendered instructions body, the optional References section with
+its count + each reference's name/description/markdown-body + copyable id,
+the Disable/Enable + Edit + Delete action wiring, and the `CopyableId`
+clipboard-write + 1.5s `Copied!` flash + revert sub-component), and the
+`SkillEditor` create/edit form layered on the already-tested
+`skill-draft` validation (the New-skill vs Edit-`<name>` heading + submit
+label, the Name/Description/Instructions field rendering with hints +
+counters, the Write/Preview toggle for the markdown instructions body
+including the empty-body `Nothing to preview yet.` placeholder, the
+references management — Add-reference minting a new row + Remove by
+`aria-label`, the per-field error surfacing on an empty submit without
+calling `onSubmit`/`onSaved` + the error-clears-on-edit contract, the
+trim-on-submit payload construction including the reference `id`
+carry-through for existing references and the id-omission for new ones,
+the `onSubmit`-returns-null save-error path, and the Cancel / Close-editor
+`onCancel` wiring), plus the `Field` render-prop primitive (the
+label↔input `htmlFor`/`id` linkage via `useId`, the optional counter +
+hint, and the `role="alert"` error line), and the thin `useChatBusy`
+hook (the `useSyncExternalStore` wrapper over the module-level busy-signal
+that lets the root-level `AppSidebar` mirror the per-session provider's
+streaming flag: the default `false` snapshot, the `true`/`false`
+reactivity across signal transitions, the no-op-on-identical-value guard,
+the multi-instance fan-out, and the clean unmount).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
