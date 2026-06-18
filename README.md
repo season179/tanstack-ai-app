@@ -278,7 +278,20 @@ constraint errors, and the `aria-invalid` field marking) without calling
 (title trimming, the scheduleType/runAt/cron field wiring, and the
 close-on-success) via both the Create-button click and the form `onSubmit`;
 and the title/instruction field binding + the `TITLE_MAX`/`INSTRUCTION_MAX`
-`maxLength` caps), and the `ThemeToggle` sidebar selector (the two-shape theme
+`maxLength` caps), the `ScheduledJobsBoard` component (the entire `/tasks`
+page surface layered on top of the already-tested `buildOverview` /
+`canFire` + `display.ts` formatters, rendered against controlled store
+fixtures while the real overview computation runs: the whole-board empty
+state vs. the four-section board switch; the Running now / Up next / Paused /
+Past runs section headings + per-row rendering (task title, schedule label,
+status badge, duration, result, payload label); the per-section empty notes
+that appear only when the board is otherwise non-empty (and the Paused
+section's `null`-when-empty omission); the `homeSessionId`-gated View
+transcript button; and the action wiring — Disable → `updateTask(id, {
+isEnabled: false })`, Enable → `updateTask(id, { isEnabled: true })`, Delete →
+a `window.confirm`-gated `removeTask(id)` (cancelled vs. confirmed), View
+transcript → `goToTranscript(homeSessionId)`, and both New task buttons
+opening the create dialog), and the `ThemeToggle` sidebar selector (the two-shape theme
 affordance ported from the reference's commit 213e0af: the segmented
 `Light | Dark | System` control when the sidebar is expanded
 (`withLabel`), where the active segment reads as selection via
