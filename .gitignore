@@ -13,3 +13,5 @@ build/
 src/routeTree.gen.ts
 
 codedb.snapshot
+
+.gnhf
