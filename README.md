@@ -304,7 +304,31 @@ contract derived from the stored preference (defaulting to System), the
 `setTheme` → localStorage persistence + `.dark`-class application on click,
 the active-only `bg-background` styling, the rail's single-button shape +
 derived `aria-label`/`title`, and the light → dark → system → light cycle
-across repeated clicks).
+across repeated clicks), and the `AppSidebar` component (the persistent left
+rail that holds the brand, the primary `Chat` / `Scheduled tasks` / `Skills`
+nav, the `New chat` affordance, the live `Today`/`Older`-grouped chat-session
+list, and the `ThemeToggle` footer — layered on the already-tested
+`sidebar-grouping` helpers, `useChatSessions` / `useChatBusy` hooks, and
+`sessions-store`, rendered against controlled router/shell/busy/sessions
+mocks while the real grouping helpers run: the brand + collapse/expand toggle
+(`toggleSidebar`), the three nav items with their `aria-current="page"`
+active-state derivation from the router pathname (`Chat` active on both `/`
+and `/chat/$sessionId`, `Scheduled tasks` on `/tasks`, `Skills` on `/skills`),
+the icon-only rail shape when collapsed (labels hidden, surfaced via `title`),
+the mobile backdrop + the close-on-nav behavior when the viewport is mobile,
+the `New chat` button (`createSession` + navigate, disabled + no-op while a
+chat is streaming), the session list's empty state, the `Today`/`Older`
+calendar-day grouping + the per-row relative timestamp, and the
+`aria-current="true"` active-session marker; and each `SessionRow`'s action
+wiring — select → navigate (with the chatBusy guard that blocks navigating
+*away* from an actively-streaming chat but allows the no-op back to the
+active one), the inline rename (`Pencil` → input seeded with the current
+title, commit on Enter or the `onMouseDown` `Check` button before blur
+cancels, cancel on Escape, no-op on blank or unchanged draft), and the delete
+(`window.confirm`-gated `removeSession` with the cancelled-vs-confirmed
+split, the chatBusy guard that disables deleting the actively-streaming chat
+but still permits deleting an idle one, and the redirect-to-`/` navigation
+when the active chat is removed)).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
