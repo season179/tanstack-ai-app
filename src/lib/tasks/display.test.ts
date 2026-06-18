@@ -6,6 +6,7 @@ import {
   getRunResult,
   payloadKindLabel,
   runStatusClasses,
+  scheduleLabel,
 } from "~/lib/tasks/display";
 import type { ScheduledTaskRun } from "~/lib/tasks/types";
 
@@ -119,5 +120,56 @@ describe("runStatusClasses", () => {
 describe("payloadKindLabel", () => {
   it("labels an instruction payload as 'check-in'", () => {
     expect(payloadKindLabel("instruction")).toBe("check-in");
+  });
+});
+
+describe("scheduleLabel", () => {
+  it("returns 'One-off' for a once schedule with null cron", () => {
+    expect(scheduleLabel({ scheduleType: "once", cron: null })).toBe("One-off");
+  });
+
+  it("returns 'Recurring · cron <expr>' for a cron schedule", () => {
+    expect(scheduleLabel({ scheduleType: "cron", cron: "0 9 * * *" })).toBe(
+      "Recurring · cron 0 9 * * *",
+    );
+  });
+
+  it("preserves the cron expression verbatim (no normalization)", () => {
+    expect(scheduleLabel({ scheduleType: "cron", cron: "*/15 * * * *" })).toBe(
+      "Recurring · cron */15 * * * *",
+    );
+  });
+
+  it("accepts a structurally-compatible ScheduledTask shape", () => {
+    // Mirrors the board's PausedSection call site: scheduleLabel(task) where
+    // task is a full ScheduledTask carrying the common {scheduleType, cron}.
+    const task = {
+      id: "t1",
+      title: "Standup",
+      scheduleType: "cron" as const,
+      cron: "0 9 * * MON",
+    };
+    expect(scheduleLabel(task)).toBe("Recurring · cron 0 9 * * MON");
+  });
+
+  it("accepts a structurally-compatible UpcomingScheduledJob shape", () => {
+    // Mirrors the board's UpcomingSection call site: scheduleLabel(job) where
+    // job is a full UpcomingScheduledJob carrying the common {scheduleType, cron}.
+    const job = {
+      taskId: "t1",
+      taskTitle: "Standup",
+      scheduleType: "once" as const,
+      cron: null,
+      nextRunAt: "2026-06-18T12:00:00.000Z",
+    };
+    expect(scheduleLabel(job)).toBe("One-off");
+  });
+
+  it("renders the literal cron even when it is null under a cron schedule type", () => {
+    // The data-model contract guarantees cron is non-null when scheduleType is
+    // 'cron', but the function does not enforce it — a null cron renders as the
+    // string 'null'. Pinned so a future tightening (null-guard or assertion) is
+    // a deliberate behavior change, not a silent one.
+    expect(scheduleLabel({ scheduleType: "cron", cron: null })).toBe("Recurring · cron null");
   });
 });

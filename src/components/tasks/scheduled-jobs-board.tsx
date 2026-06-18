@@ -11,6 +11,7 @@ import {
   getRunResult,
   payloadKindLabel,
   runStatusClasses,
+  scheduleLabel,
 } from "~/lib/tasks/display";
 import { buildOverview, canFire } from "~/lib/tasks/scheduler";
 import { getRunsSnapshot, getTasksSnapshot, subscribeTasks } from "~/lib/tasks/tasks-store";
@@ -288,7 +289,7 @@ function PausedSection({
                 >
                   {task.title}
                 </td>
-                <td className="px-3 py-2 text-muted-foreground">{taskScheduleLabel(task)}</td>
+                <td className="px-3 py-2 text-muted-foreground">{scheduleLabel(task)}</td>
                 <td className="px-3 py-2 text-right">
                   <div className="flex items-center justify-end gap-1">
                     {task.homeSessionId ? (
@@ -452,19 +453,4 @@ function EmptyNote({ children }: { children: React.ReactNode }) {
       {children}
     </p>
   );
-}
-
-function scheduleLabel(job: UpcomingScheduledJob): string {
-  if (job.scheduleType === "cron") {
-    return `Recurring · cron ${job.cron}`;
-  }
-  return "One-off";
-}
-
-/** Schedule readout for a paused task (the task entity, not an upcoming job). */
-function taskScheduleLabel(task: ScheduledTask): string {
-  if (task.scheduleType === "cron") {
-    return `Recurring · cron ${task.cron}`;
-  }
-  return "One-off";
 }

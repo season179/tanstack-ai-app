@@ -5,7 +5,7 @@
  * identically.
  */
 
-import type { ScheduledTaskRun, TaskPayloadKind } from "./types";
+import type { ScheduledTaskRun, ScheduleType, TaskPayloadKind } from "./types";
 
 export function formatTimestamp(value: string): string {
   const date = new Date(value);
@@ -73,6 +73,20 @@ export function formatDuration(startedAt: string, completedAt: string | null): s
 
 export function payloadKindLabel(kind: TaskPayloadKind): string {
   return kind === "instruction" ? "check-in" : "tool call";
+}
+
+/**
+ * Human-readable schedule readout for the board. Works for any entity that
+ * carries the schedule shape (both the live `ScheduledTask` and the projected
+ * `UpcomingScheduledJob`), so the Up next / Paused / Running sections all
+ * render the same string for the same schedule. A one-off task has no cron,
+ * so its label is just "One-off".
+ */
+export function scheduleLabel(task: { scheduleType: ScheduleType; cron: string | null }): string {
+  if (task.scheduleType === "cron") {
+    return `Recurring · cron ${task.cron}`;
+  }
+  return "One-off";
 }
 
 export function runStatusClasses(status: ScheduledTaskRun["status"]): string {

@@ -56,7 +56,8 @@ tools (`skill_search` / `skill_get_content` dispatch, the tier-1 catalog block,
 token-overlap ranking with exact-name weighting, and the tier-2/tier-3 content
 formatting), the scheduler's cron projection (`canFire` / `projectNextFire`) and
 the board's running/upcoming/past overview layout (`buildOverview`), the scheduled-jobs board display
-formatters (run duration / result / status classes), the Create Task dialog's
+formatters (run duration / result / status classes, and the unified `scheduleLabel`
+schedule readout shared by the Up next / Paused sections), the Create Task dialog's
 pure validation + datetime-local helpers extracted into `create-task-helpers`
 (the `TITLE_MAX` / `INSTRUCTION_MAX` length limits, the `Draft` / `Errors`
 shape, the `EMPTY_DRAFT` default, the `toLocalInputValue` Date → datetime-local
