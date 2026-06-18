@@ -17,6 +17,7 @@ import { ReasoningPanel } from "~/components/chat/reasoning-panel";
 import { ToolTracePanel } from "~/components/chat/tool-trace-panel";
 import { Button } from "~/components/ui/button";
 import { Markdown } from "~/components/ui/markdown";
+import { messageContentClassName } from "~/lib/chat/message-display";
 import { dedupeMessagesById } from "~/lib/chat/messages";
 import {
   type ChatUsageSummary,
@@ -583,15 +584,11 @@ function MessageBubble({
   const isUser = sender === "user";
   const showCaret = isStreaming && content.length === 0;
 
+  // Mirrors the reference's ai-elements MessageContent split (extracted into
+  // messageContentClassName so the user=bubble / assistant=borderless fidelity
+  // contract is pinned by a co-located test): only the user turn gets a bubble.
   return (
-    <div
-      className={cn(
-        "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm",
-        isUser
-          ? "rounded-br-sm bg-primary text-primary-foreground"
-          : "rounded-bl-sm bg-card text-card-foreground",
-      )}
-    >
+    <div className={messageContentClassName(sender)}>
       {isUser && activatedSkill ? (
         <div className="mb-1.5">
           <span className="inline-flex items-center gap-1 rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[11px] font-medium">

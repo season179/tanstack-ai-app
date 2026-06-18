@@ -190,7 +190,16 @@ helpers (`parseActiveSessionId` / `formatRelative` / `isSameDay` /
 `groupSessions`: pathname extraction, relative-time formatting with the
 nearest-minute rounding + the <30s "just now" cutoff + locale-date fallback,
 local-calendar-day equality, and the Today/Older grouping by calendar day
-rather than a 24h window), and the `/api/chat` route's pure input-validation
+rather than a 24h window), and the chat message-bubble display helper
+extracted into `message-display` (`messageContentClassName`: the per-turn
+content className ported from the reference's `ai-elements` `MessageContent`,
+pinning the user-gets-a-bubble / assistant-is-borderless fidelity contract —
+both turns share `px-4 py-3 text-sm leading-6`, the user turn adds the
+`bg-primary text-primary-foreground rounded-lg` bubble capped at `max-w
+min(46rem,82%)` with `whitespace-pre-wrap break-words` for plain-text input,
+and the assistant turn is borderless `text-card-foreground` at `max-w
+min(72rem,100%)` with no background / rounding / shadow, matching the modern
+chat-app pattern where only the user's input gets a bubble), and the `/api/chat` route's pure input-validation
 + response-header helpers extracted into `chat-route-helpers`
 (`chatStreamHeaders` building the SSE + four `x-*` verification headers across
 search/all/none modes + skill-extras additivity, `toChatMessages` validating
