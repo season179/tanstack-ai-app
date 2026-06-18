@@ -382,7 +382,7 @@ actions right cluster with the actions cluster only rendering when actions
 are supplied, the `banner` landmark, and the runtime status dot —
 `aria-hidden` so screen readers rely on the label, `size-1.5` for the status
 indicator, and the `animate-pulse` gate that pulses only while the page is
-actively working), and the `Button` design-system component (the cva
+actively working), the root `AppShell` / `AppShellFrame` layout frame (the always-mounted root that wraps every routed page in the `AppShellProvider` and renders the persistent `AppSidebar` + the content region: the iteration-32 scheduler-boot invariant — `startTaskScheduler` fires exactly once on mount, never on re-render, and re-fires on a fresh lifecycle remount, so the scheduled-task ticker runs on EVERY route rather than only `/tasks`; the mobile-collapsed-on-mount side effect that calls `closeSidebar()` on first mount ONLY when `isMobileViewport()` returns true — so a fresh phone load starts with the rail docked — and is a no-op on desktop; and the structural rendering contract — the full-viewport `flex h-dvh bg-background` frame wrapping `AppSidebar` + the content region, with the `--sidebar-rail` CSS custom property pinned to `SIDEBAR_RAIL` regardless of state and `--sidebar-width` toggling between `SIDEBAR_WIDTH` (expanded) and `SIDEBAR_RAIL` (docked) off the `sidebarOpen` flag the provider flows down), and the `Button` design-system component (the cva
 resolver's 4 variants × 3 sizes = 12 distinct class combinations, the
 default-variant/default-size fallbacks, the load-bearing distinction that
 `buttonVariants()` only concatenates classes while the `<Button>` component's
