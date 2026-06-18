@@ -328,7 +328,21 @@ cancels, cancel on Escape, no-op on blank or unchanged draft), and the delete
 (`window.confirm`-gated `removeSession` with the cancelled-vs-confirmed
 split, the chatBusy guard that disables deleting the actively-streaming chat
 but still permits deleting an idle one, and the redirect-to-`/` navigation
-when the active chat is removed)).
+when the active chat is removed)), and the `chat-message` components
+(`MessageRow` / `MessageBubble` / `MessageCopyButton`, the per-turn render
+primitives extracted from `chat-surface.tsx` so the message-presentation
+contract is unit-testable: the `Thinking…` streaming placeholder gated on
+`isStreaming && content.length === 0`, the verbatim-vs-markdown content split
+(user input rendered `whitespace-pre-wrap`, assistant replies through the
+`Markdown` tree), the streaming caret, the user-only `activatedSkill` Zap
+badge and assistant-only `scheduled`-origin `CalendarClock` badge, the
+per-sender `items-end`/`items-start` alignment, the `ReasoningPanel` /
+`ToolTracePanel` / token-usage-caption gating (caption suppressed while
+streaming or for empty usage so it never flickers a mid-stream `0 · 0 · 0`),
+the footer actions cluster (`Copy` on every settled non-empty assistant turn,
+`Regenerate` only on the last one with a callback and never while streaming),
+and the `MessageCopyButton`'s clipboard write + 1.5s `Copied` confirmation
+flash + fail-soft on a rejecting clipboard API).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
