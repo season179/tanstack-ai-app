@@ -11,3 +11,5 @@ build/
 
 # generated route tree
 src/routeTree.gen.ts
+
+codedb.snapshot
