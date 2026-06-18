@@ -162,7 +162,29 @@ the message history with role+content fail-fast on non-object / unknown-role /
 non-string / empty-content entries, `toSkillSnapshot` failing-soft per-row
 validation of the client's enabled-skills payload including nested-reference
 filtering, and `buildSystemPrompt` appending the skills catalog block when
-present).
+present), and the inline tool-trace + reasoning disclosure panels' display
+helpers and component behavior (the `tool-trace-display` pure helpers
+extracted from `tool-trace-panel.tsx`: the `statusVisual` status → icon +
+className mapping for ok/error/running with the `animate-spin` class that
+lucide-react's missing `spin` prop requires, and the `formatArgsPreview`
+arguments-preview formatter with its null-suppression for absent / empty /
+whitespace-only / `{}` inputs, JSON-stringification of object/array/number/
+boolean args, the `String()` fallback when `JSON.stringify` throws on
+circular refs, the single-line whitespace collapse, and the configurable
+char-cap truncation with ellipsis; plus the `ToolTracePanel` and
+`ReasoningPanel` components themselves via the React Testing Library
+`render`/`screen` harness — the empty-case early return, the summary-line
+savings readout with the search/all mode label + the singular/plural step
++ request counts, the savings grid (Sent / Schema sent / Saved / Baseline)
++ the search/describe/call/deferred counts footer, the per-step rows with
+the title-or-name label + service sublabel + running hint + args/output
+previews, and critically the load-bearing "uncontrolled `<details>` +
+one-shot auto-open during streaming" pattern that avoids the controlled-
+open trap documented across iterations 11 and 17 — pinning that the panel
+auto-opens on the first streaming render, stays open across the
+isStreaming→false transition without re-touching, and never re-opens after
+the user manually closes it, plus the `ReasoningPanel`'s `Thinking…` live
+pulse vs the settled `Reasoning` label and the markdown body rendering).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)

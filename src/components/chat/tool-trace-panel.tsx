@@ -11,9 +11,8 @@
  * sent, schema tokens, % saved) is always visible.
  */
 
-import { ChevronDown, CircleCheck, CircleX, Loader, Wrench } from "lucide-react";
+import { ChevronDown, Wrench } from "lucide-react";
 import { useEffect, useRef } from "react";
-
 import {
   formatSavingsLine,
   formatTokenCount,
@@ -21,6 +20,7 @@ import {
   type ToolStep,
   truncateForPreview,
 } from "~/lib/chat/tool-events";
+import { formatArgsPreview, statusVisual } from "~/lib/chat/tool-trace-display";
 import { cn } from "~/lib/utils";
 
 export function ToolTracePanel({
@@ -180,40 +180,4 @@ function SavingsGrid({ summary }: { summary: ToolSearchSummary }) {
       </div>
     </div>
   );
-}
-
-function statusVisual(status: ToolStep["status"]): {
-  Icon: typeof Loader;
-  className: string;
-} {
-  switch (status) {
-    case "ok":
-      return { Icon: CircleCheck, className: "text-emerald-500" };
-    case "error":
-      return { Icon: CircleX, className: "text-destructive" };
-    case "running":
-      return { Icon: Loader, className: "text-primary animate-spin" };
-  }
-}
-
-/** Render a tool's arguments as a compact preview string for the trace row. */
-function formatArgsPreview(args: unknown): string | null {
-  if (args === undefined || args === null) {
-    return null;
-  }
-  let text: string;
-  if (typeof args === "string") {
-    text = args;
-  } else {
-    try {
-      text = JSON.stringify(args);
-    } catch {
-      text = String(args);
-    }
-  }
-  const trimmed = text.trim();
-  if (trimmed.length === 0 || trimmed === "{}") {
-    return null;
-  }
-  return truncateForPreview(trimmed, 140);
 }
