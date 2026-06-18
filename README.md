@@ -56,7 +56,16 @@ tools (`skill_search` / `skill_get_content` dispatch, the tier-1 catalog block,
 token-overlap ranking with exact-name weighting, and the tier-2/tier-3 content
 formatting), the scheduler's cron projection (`canFire` / `projectNextFire`) and
 the board's running/upcoming/past overview layout (`buildOverview`), the scheduled-jobs board display
-formatters (run duration / result / status classes), the tool-events formatters
+formatters (run duration / result / status classes), the Create Task dialog's
+pure validation + datetime-local helpers extracted into `create-task-helpers`
+(the `TITLE_MAX` / `INSTRUCTION_MAX` length limits, the `Draft` / `Errors`
+shape, the `EMPTY_DRAFT` default, the `toLocalInputValue` Date → datetime-local
+formatter that always emits the seconds component so the +10s / +30s
+sub-minute quick offsets remain representable, the `localInputToIso` local-time
+→ ISO parser with its empty / malformed / whitespace → null fallbacks, and
+`validate`'s title / instruction / one-off-future-time / cron rules with an
+injectable `now` for deterministic boundary testing of the past / exactly-now
+/ strictly-future cases and the cron-parser constraint errors), the tool-events formatters
 + tool-step pairing, the deferred tool-search bridge (BM25 + substring fallback
 + the savings metadata), the token-usage allocation math (char→token
 estimation, the largest-remainder category + per-tool-schema split driving

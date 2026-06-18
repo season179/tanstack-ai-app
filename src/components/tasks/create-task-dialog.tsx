@@ -1,9 +1,18 @@
-import { CronExpressionParser } from "cron-parser";
 import { X } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
 import { Button } from "~/components/ui/button";
-import type { CreateScheduledTaskInput, ScheduleType } from "~/lib/tasks/types";
+import {
+  type Draft,
+  EMPTY_DRAFT,
+  type Errors,
+  INSTRUCTION_MAX,
+  localInputToIso,
+  TITLE_MAX,
+  toLocalInputValue,
+  validate,
+} from "~/lib/tasks/create-task-helpers";
+import type { CreateScheduledTaskInput } from "~/lib/tasks/types";
 import { cn } from "~/lib/utils";
 
 const CRON_PRESETS: { label: string; value: string }[] = [
@@ -19,81 +28,6 @@ const QUICK_OFFSETS: { label: string; seconds: number }[] = [
   { label: "+1m", seconds: 60 },
   { label: "+5m", seconds: 300 },
 ];
-
-const TITLE_MAX = 120;
-const INSTRUCTION_MAX = 2000;
-
-type Draft = {
-  title: string;
-  instruction: string;
-  scheduleType: ScheduleType;
-  /** `yyyy-MM-ddTHH:mm` for the datetime-local control. */
-  runAtLocal: string;
-  cron: string;
-};
-
-const EMPTY_DRAFT: Draft = {
-  title: "",
-  instruction: "",
-  scheduleType: "once",
-  runAtLocal: "",
-  cron: "*/5 * * * *",
-};
-
-type Errors = {
-  title?: string;
-  instruction?: string;
-  runAt?: string;
-  cron?: string;
-};
-
-/** Format a Date as the value a datetime-local input expects (local time,
- *  with seconds so sub-minute quick offsets like +10s are representable). */
-function toLocalInputValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
-/** Parse a datetime-local value into an ISO string (interpreted as local time). */
-function localInputToIso(value: string): string | null {
-  const ms = Date.parse(value);
-  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
-}
-
-function validate(draft: Draft): Errors {
-  const errors: Errors = {};
-
-  if (!draft.title.trim()) {
-    errors.title = "Title is required.";
-  } else if (draft.title.length > TITLE_MAX) {
-    errors.title = `Keep it under ${TITLE_MAX} characters.`;
-  }
-
-  if (!draft.instruction.trim()) {
-    errors.instruction = "An instruction is required.";
-  } else if (draft.instruction.length > INSTRUCTION_MAX) {
-    errors.instruction = `Keep it under ${INSTRUCTION_MAX.toLocaleString()} characters.`;
-  }
-
-  if (draft.scheduleType === "once") {
-    const iso = localInputToIso(draft.runAtLocal);
-    if (!iso) {
-      errors.runAt = "Pick a date and time.";
-    } else if (new Date(iso).getTime() <= Date.now()) {
-      errors.runAt = "Choose a time in the future.";
-    }
-  } else if (!draft.cron.trim()) {
-    errors.cron = "A cron expression is required.";
-  } else {
-    try {
-      CronExpressionParser.parse(draft.cron.trim(), { tz: "UTC" });
-    } catch (error) {
-      errors.cron = error instanceof Error ? error.message : "Invalid cron expression.";
-    }
-  }
-
-  return errors;
-}
 
 export function CreateTaskDialog({
   open,
