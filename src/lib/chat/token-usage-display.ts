@@ -90,11 +90,11 @@ export function getBreakdownCategoryCopy(
 export function getBreakdownBarColor(id: TokenUsageBreakdownCategoryId): string {
   switch (id) {
     case "tools":
-      return "bg-amber-500";
+      return "bg-[var(--chart-tools)]";
     case "messages":
-      return "bg-sky-500";
+      return "bg-[var(--chart-messages)]";
     case "systemPrompt":
-      return "bg-violet-500";
+      return "bg-[var(--chart-system)]";
   }
 }
 
