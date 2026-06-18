@@ -136,9 +136,23 @@ usage / breakdown / metadata folding onto one assistant turn, and
 `useModels` (localStorage selection restore + `setSelectedModel` persistence
 including the null-removal and storage-throw fail-soft paths, and the lazy
 `ensureLoaded` fetch with idempotency + non-ok soft-fail + reject-then-retry
-reset + loading flag), and `useHydrated` (the post-mount true + rerender /
-remount stability), and — extending that React Testing Library harness from
-`renderHook` to `render`/`screen`/`fireEvent` — the interactive UI components,
+reset + loading flag), `useChatSessions` (the live view of the chat-sessions
+store the sidebar / redirect logic / routes read through: createSession
+delegation + default-title fallback + localStorage persistence, reactivity
+across hook instances + cross-tab storage-event re-render, referential
+stability of the snapshot between non-mutating renders + of the action
+callbacks across renders, newest-updated-first ordering + `touch` re-float,
+and `removeSession` / `renameSession` delegation with the 'manual' provenance
+stamp), and `useSkills` (the live view of the skills store the Skills page
+and the chat composer's `/skill-name` autocomplete read through: createSkill
+delegation + enabled-by-default + persistence, reactivity across instances +
+cross-tab re-render, referential stability of the snapshot + callbacks,
+newest-created-first ordering stable across `updatedAt` bumps, and
+`updateSkill` / `removeSkill` delegation including the unknown-id `null`
+return + content preservation), and `useHydrated` (the post-mount true +
+rerender / remount stability), and — extending that React Testing Library
+harness from `renderHook` to `render`/`screen`/`fireEvent` — the interactive
+UI components,
 starting with the `ModelPicker` (the composer's searchable, keyboard-navigable,
 lazy-loading model selector: the trigger label derivation across value /
 default-model / catalog-display-name / shortName fallbacks, the popover
