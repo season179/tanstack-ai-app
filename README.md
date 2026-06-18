@@ -220,7 +220,19 @@ the `getBreakdownCategoryCopy` human label + description for each of the
 three allocation categories with the tool-schema count's singular/plural
 form and locale thousands separators, and the `getBreakdownBarColor` /
 `getBreakdownDotColor` tailwind color-class mapping with the legend-matches-
-segment invariant across tools/messages/systemPrompt).
+segment invariant across tools/messages/systemPrompt), and the `Markdown`
+renderer (the framework-agnostic react-markdown + remark-gfm replacement for
+the reference's Streamdown, used by every assistant bubble, the reasoning
+panel, and the Skills page bodies/preview: the wrapper-div class-merging, the
+paragraph / h1–h6 / strong / em / ul / ol / blockquote / hr / img element
+mappings onto the OKLCH design tokens, the block-vs-inline `<code>` detection
+language-/newline heuristic with the bare-```-fence fallback path, the `<pre>`
+block chrome vs the inline `<code>` muted pill, the link sandboxing
+(target=`_blank` + rel=`noreferrer` + text-primary), the GFM features (tables
+with th/td styling, strikethrough `<del>`, task-list checkboxes, autolinks),
+and the load-bearing security contract that raw HTML is dropped by default
+(both inline `<script>` and block-level `<div class="evil">` payloads are
+stripped from the rendered DOM)).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
