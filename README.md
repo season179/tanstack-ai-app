@@ -149,7 +149,20 @@ state, the keyboard navigation (ArrowDown/ArrowUp wrap + Enter-to-select +
 Escape-to-close + no-op on an empty result set), the mouse hover-re-highlight
 + click-to-select, the outside-click dismiss, the active-descendant
 `aria-selected` semantics vs the chosen-value Check-icon distinction, and
-the `K`-suffixed context-length formatting).
+the `K`-suffixed context-length formatting), and the AppSidebar's session-listing
+helpers (`parseActiveSessionId` / `formatRelative` / `isSameDay` /
+`groupSessions`: pathname extraction, relative-time formatting with the
+nearest-minute rounding + the <30s "just now" cutoff + locale-date fallback,
+local-calendar-day equality, and the Today/Older grouping by calendar day
+rather than a 24h window), and the `/api/chat` route's pure input-validation
++ response-header helpers extracted into `chat-route-helpers`
+(`chatStreamHeaders` building the SSE + four `x-*` verification headers across
+search/all/none modes + skill-extras additivity, `toChatMessages` validating
+the message history with role+content fail-fast on non-object / unknown-role /
+non-string / empty-content entries, `toSkillSnapshot` failing-soft per-row
+validation of the client's enabled-skills payload including nested-reference
+filtering, and `buildSystemPrompt` appending the skills catalog block when
+present).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
