@@ -239,7 +239,17 @@ the `getBreakdownCategoryCopy` human label + description for each of the
 three allocation categories with the tool-schema count's singular/plural
 form and locale thousands separators, and the `getBreakdownBarColor` /
 `getBreakdownDotColor` tailwind color-class mapping with the legend-matches-
-segment invariant across tools/messages/systemPrompt), and the `Markdown`
+segment invariant across tools/messages/systemPrompt), and the `TokenUsageMenu`
+component itself via the React Testing Library harness (the summary trigger's
+formatted session-total + the `0` fallback, the `Send a message to see usage.`
+empty state, the last-request header total, the conditional rendering of the
+`ProviderUsageGrid` / `PromptAllocation` / `ToolSearchPanel` panels keyed on
+their respective prop presence, the singular/plural request + tool-count
+copy, the search/all mode label, the savings-percentage line gated on
+`savedSchemaTokens > 0`, the search/describe/call/deferred counts footer,
+the nested `ToolSearchTrace` disclosure with its `latest N of M` and 5-row
+cap, and the `ToolSchemaBreakdown` top-8 visible + aggregated `Other N tool
+schema(s)` hidden-row contract), and the `Markdown`
 renderer (the framework-agnostic react-markdown + remark-gfm replacement for
 the reference's Streamdown, used by every assistant bubble, the reasoning
 panel, and the Skills page bodies/preview: the wrapper-div class-merging, the
