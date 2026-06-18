@@ -210,7 +210,17 @@ open trap documented across iterations 11 and 17 — pinning that the panel
 auto-opens on the first streaming render, stays open across the
 isStreaming→false transition without re-touching, and never re-opens after
 the user manually closes it, plus the `ReasoningPanel`'s `Thinking…` live
-pulse vs the settled `Reasoning` label and the markdown body rendering).
+pulse vs the settled `Reasoning` label and the markdown body rendering),
+and the header `TokenUsageMenu`'s pure display helpers extracted into
+`token-usage-display` (the `getToolSearchEventLabel` / `getToolSearchEventDetail`
+search-trace row rendering — quoted query + top-3-match-name join with the
+`"no matches"` fallback and the 3-name cap, and the `"<name> schema loaded"` /
+`"<name> invoked"` / `"<name> not found"` describe/call detail strings — plus
+the `getBreakdownCategoryCopy` human label + description for each of the
+three allocation categories with the tool-schema count's singular/plural
+form and locale thousands separators, and the `getBreakdownBarColor` /
+`getBreakdownDotColor` tailwind color-class mapping with the legend-matches-
+segment invariant across tools/messages/systemPrompt).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)

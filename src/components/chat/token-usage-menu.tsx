@@ -1,11 +1,17 @@
 import {
+  getBreakdownBarColor,
+  getBreakdownCategoryCopy,
+  getBreakdownDotColor,
+  getToolSearchEventDetail,
+  getToolSearchEventLabel,
+} from "~/lib/chat/token-usage-display";
+import {
   type ChatUsageSummary,
   formatPercentageValue,
   formatTokenCount,
   formatTokenPercentage,
   isUsageEmpty,
   type TokenUsageBreakdown,
-  type TokenUsageBreakdownCategoryId,
   type ToolSearchTraceEvent,
   type TurnTokenUsage,
 } from "~/lib/chat/tool-events";
@@ -199,33 +205,6 @@ function ToolSearchTrace({ trace }: { trace: ToolSearchTraceEvent[] }) {
   );
 }
 
-function getToolSearchEventLabel(event: ToolSearchTraceEvent): string {
-  switch (event.kind) {
-    case "search":
-      return "Search";
-    case "describe":
-      return "Describe";
-    case "call":
-      return "Call";
-  }
-}
-
-function getToolSearchEventDetail(event: ToolSearchTraceEvent): string {
-  switch (event.kind) {
-    case "search": {
-      const names = event.matches
-        .slice(0, 3)
-        .map((match) => match.name)
-        .join(", ");
-      return `"${event.query}" -> ${names || "no matches"}`;
-    }
-    case "describe":
-      return event.found ? `${event.name} schema loaded` : `${event.name} not found`;
-    case "call":
-      return event.found ? `${event.name} invoked` : `${event.name} not found`;
-  }
-}
-
 /**
  * Estimated input-token split: a proportional bar across system prompt /
  * tool definitions / conversation, each with a token + percentage readout, and
@@ -330,44 +309,4 @@ function ToolSchemaBreakdown({ breakdown }: { breakdown: TokenUsageBreakdown }) 
       </div>
     </details>
   );
-}
-
-function getBreakdownCategoryCopy(
-  id: TokenUsageBreakdownCategoryId,
-  breakdown: TokenUsageBreakdown,
-): { label: string; description: string } {
-  switch (id) {
-    case "tools":
-      return {
-        description: `${formatTokenCount(breakdown.toolCount)} available tool schema${
-          breakdown.toolCount === 1 ? "" : "s"
-        } sent to the provider`,
-        label: "Tool definitions",
-      };
-    case "messages":
-      return {
-        description: "User, assistant, and tool-result messages in the conversation",
-        label: "Conversation",
-      };
-    case "systemPrompt":
-      return {
-        description: "Hidden app and system instructions, when present",
-        label: "System instructions",
-      };
-  }
-}
-
-function getBreakdownBarColor(id: TokenUsageBreakdownCategoryId) {
-  switch (id) {
-    case "tools":
-      return "bg-amber-500";
-    case "messages":
-      return "bg-sky-500";
-    case "systemPrompt":
-      return "bg-violet-500";
-  }
-}
-
-function getBreakdownDotColor(id: TokenUsageBreakdownCategoryId) {
-  return getBreakdownBarColor(id);
 }
