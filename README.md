@@ -342,7 +342,30 @@ streaming or for empty usage so it never flickers a mid-stream `0 · 0 · 0`),
 the footer actions cluster (`Copy` on every settled non-empty assistant turn,
 `Regenerate` only on the last one with a callback and never while streaming),
 and the `MessageCopyButton`'s clipboard write + 1.5s `Copied` confirmation
-flash + fail-soft on a rejecting clipboard API).
+flash + fail-soft on a rejecting clipboard API), and the app-chrome context
++ header components the whole UI is mounted under — the `AppShellProvider` /
+`useAppShell` root context (the sidebar open/close state the `AppShellFrame`
+reads for its `--sidebar-width` / `--sidebar-rail` CSS custom properties and
+the `AppSidebar` consumes for its collapse/expand toggle, plus the SSR-safe
+`isMobileViewport` matchMedia read and the exported `SIDEBAR_WIDTH` /
+`SIDEBAR_RAIL` / `MOBILE_QUERY` layout constants), the `ChatShellProvider` /
+`useChatShell` route context that lifts the chat's streaming status + running
+token totals up to the `SiteHeader` (the default `chatBusy=false` +
+empty-usage summary, `setBusy` / `setUsage` delegation, stable callback
+identities, and the thrown-on-missing-consumer contract), and the iteration-31
+side effect that mirrors the per-session `chatBusy` into the module-level
+busy-signal so the root-level `AppSidebar` (which lives outside this
+provider, in the root `AppShell`) can apply the reference's three chatBusy
+guards (start new chat / select session / delete the active one) — pinned via
+`getChatBusySnapshot` assertions that the busy flag mirrors on true and on a
+true→false transition, and that the mirror resets to `false` on unmount so a
+stale `true` can never leak into the next session's view, plus the
+`SiteHeader` / `SiteHeaderStatus` presentational surface (the status +
+actions right cluster with the actions cluster only rendering when actions
+are supplied, the `banner` landmark, and the runtime status dot —
+`aria-hidden` so screen readers rely on the label, `size-1.5` for the status
+indicator, and the `animate-pulse` gate that pulses only while the page is
+actively working).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
