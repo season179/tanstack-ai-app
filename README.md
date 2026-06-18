@@ -149,7 +149,19 @@ delegation + enabled-by-default + persistence, reactivity across instances +
 cross-tab re-render, referential stability of the snapshot + callbacks,
 newest-created-first ordering stable across `updatedAt` bumps, and
 `updateSkill` / `removeSkill` delegation including the unknown-id `null`
-return + content preservation), and `useHydrated` (the post-mount true +
+return + content preservation), `useTasks` (the live view of the
+scheduled-task store the scheduled-jobs board / root `AppShell` scheduler
+boot / `CreateTaskDialog` read through: createTask delegation for both
+once- and cron-task shapes including the implicit home-session mint +
+localStorage persistence, the `startTaskScheduler` boot side-effect firing
+exactly once on mount and idempotently across re-renders, reactivity across
+hook instances + cross-tab storage-event re-render across BOTH the tasks
+and runs keys, referential stability of the snapshot between non-mutating
+renders + of the action callbacks, newest-created-first ordering stable
+across `updatedAt` bumps, `updateTask` / `removeTask` delegation including
+the unknown-id `null` return + content preservation, and the
+`useGoToTranscript` navigation wrapper — navigate on a real id, no-op on
+null, stable callback identity), and `useHydrated` (the post-mount true +
 rerender / remount stability), and — extending that React Testing Library
 harness from `renderHook` to `render`/`screen`/`fireEvent` — the interactive
 UI components,
