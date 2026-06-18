@@ -17,6 +17,7 @@ import { ReasoningPanel } from "~/components/chat/reasoning-panel";
 import { ToolTracePanel } from "~/components/chat/tool-trace-panel";
 import { Button } from "~/components/ui/button";
 import { Markdown } from "~/components/ui/markdown";
+import { dedupeMessagesById } from "~/lib/chat/messages";
 import {
   type ChatUsageSummary,
   formatUsageLine,
@@ -53,6 +54,17 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
   const [input, setInput] = useState("");
   const contentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Two async writers feed the message list: this hook's own streaming and
+  // the per-session live-merge subscriber (which folds in turns appended by
+  // the scheduled-task executor when a task fires into the viewed chat). When
+  // a scheduled fire lands mid-turn, the same assistant turn can briefly
+  // appear from both writers before they reconcile. Dedupe by id at this
+  // single read boundary so React always sees unique keys (a duplicate key
+  // crashes the list render) and the token-usage summary can't double-count.
+  // First occurrence wins to keep each message at the position where it first
+  // appeared. Ported from the reference's chat-surface render boundary.
+  const renderedMessages = useMemo(() => dedupeMessagesById(messages), [messages]);
 
   // --- Skill slash-command autocomplete (/skill-name) ---------------------
   // The catalog is the user's enabled skills; only they can be activated.
@@ -103,7 +115,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
   // The last assistant message is the one a regenerate acts on; only surface
   // the affordance when the conversation ends on a real (non-empty) assistant
   // turn and nothing is in flight.
-  const lastMessage = messages.at(-1);
+  const lastMessage = renderedMessages.at(-1);
   const canRegenerateLast =
     !isBusy && lastMessage?.role === "assistant" && lastMessage.content.trim().length > 0;
 
@@ -113,7 +125,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
   }, [isBusy, setBusy]);
 
   // Surface the running token totals to the header's Session Tokens menu.
-  // `messages` gets a new reference on essentially every render during
+  // `renderedMessages` gets a new reference on essentially every render during
   // streaming, so memoizing on it alone would mint a fresh summary object each
   // time — even though the numbers only move when a turn finishes (that's when
   // the usage frame lands). A signature guard preserves the prior identity so
@@ -130,7 +142,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
   });
   const usageSignatureRef = useRef<string>("");
   const usageSummary = useMemo<ChatUsageSummary>(() => {
-    const assistantMessages = messages.filter((message) => message.role === "assistant");
+    const assistantMessages = renderedMessages.filter((message) => message.role === "assistant");
     const latest = assistantMessages.at(-1);
     const next: ChatUsageSummary = {
       sessionUsage: sumUsage(
@@ -149,7 +161,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
     usageSignatureRef.current = signature;
     usageRef.current = next;
     return next;
-  }, [messages]);
+  }, [renderedMessages]);
 
   useEffect(() => {
     setUsage(usageSummary);
@@ -235,7 +247,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
           ref={contentRef}
         >
           <div className={`${SHELL_COLUMN} py-6 sm:py-10`}>
-            {messages.length === 0 ? (
+            {renderedMessages.length === 0 ? (
               <div className="mx-auto flex min-h-[60vh] max-w-xl flex-1 flex-col items-center justify-center text-center">
                 <h1 className="text-2xl font-semibold tracking-normal text-foreground">
                   How can I help?
@@ -246,9 +258,11 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
               </div>
             ) : (
               <div className="flex flex-col gap-6">
-                {messages.map((message) => {
+                {renderedMessages.map((message) => {
                   const isAssistantActive =
-                    isBusy && message.id === messages.at(-1)?.id && message.role === "assistant";
+                    isBusy &&
+                    message.id === renderedMessages.at(-1)?.id &&
+                    message.role === "assistant";
                   return (
                     <MessageRow
                       key={message.id}
@@ -278,7 +292,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
             )}
           </div>
         </div>
-        {messages.length > 0 && !isAtBottom ? (
+        {renderedMessages.length > 0 && !isAtBottom ? (
           <Button
             aria-label="Scroll to latest message"
             className="absolute bottom-4 right-4 z-10 rounded-full shadow-md"
