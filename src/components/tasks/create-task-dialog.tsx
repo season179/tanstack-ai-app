@@ -19,7 +19,7 @@ const CRON_PRESETS: { label: string; value: string }[] = [
   { label: "Every minute", value: "* * * * *" },
   { label: "Every 5 minutes", value: "*/5 * * * *" },
   { label: "Hourly", value: "0 * * * *" },
-  { label: "Daily at 09:00", value: "0 9 * * * *" },
+  { label: "Daily at 09:00", value: "0 9 * * *" },
 ];
 
 const QUICK_OFFSETS: { label: string; seconds: number }[] = [
@@ -40,7 +40,12 @@ export function CreateTaskDialog({
 }) {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [errors, setErrors] = useState<Errors>({});
+  // titleId names the <h2> that the dialog exposes via aria-labelledby; the
+  // Title input needs its OWN id so its <label htmlFor> resolves unambiguously
+  // (reusing titleId for both made the label association ambiguous — an a11y
+  // bug where the label matched both the heading and the input).
   const titleId = useId();
+  const titleInputId = useId();
   const instructionId = useId();
 
   // Reset the form each time the dialog opens, and prefill the one-off time to
@@ -130,7 +135,7 @@ export function CreateTaskDialog({
           }}
         >
           <div>
-            <label className="text-xs font-medium text-foreground" htmlFor={titleId}>
+            <label className="text-xs font-medium text-foreground" htmlFor={titleInputId}>
               Title
             </label>
             <input
@@ -139,7 +144,7 @@ export function CreateTaskDialog({
                 "mt-1.5 w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/30",
                 errors.title ? "border-destructive" : "border-input",
               )}
-              id={titleId}
+              id={titleInputId}
               maxLength={TITLE_MAX}
               onChange={(event) => {
                 const value = event.currentTarget.value;

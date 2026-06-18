@@ -241,7 +241,24 @@ block chrome vs the inline `<code>` muted pill, the link sandboxing
 with th/td styling, strikethrough `<del>`, task-list checkboxes, autolinks),
 and the load-bearing security contract that raw HTML is dropped by default
 (both inline `<script>` and block-level `<div class="evil">` payloads are
-stripped from the rendered DOM)).
+stripped from the rendered DOM)), and the `CreateTaskDialog` modal form (the
+interactive task-creation UX layered on top of the already-tested pure
+`create-task-helpers`: the open/close surface — renders nothing when closed,
+the full dialog chrome when open, and the four close affordances (header X
+button, Cancel button, full-screen click catcher, and the Escape keydown);
+the prefill-on-open effect that seeds the one-off time to ~10 minutes from
+now and clears stale validation errors on re-open; the schedule-type toggle
+between the One-off (`datetime-local` with the `+10s` / `+30s` / `+1m` /
+`+5m` quick-offset buttons that preserve the seconds component) and
+Recurring (cron with the Every-minute / Every-5-minutes / Hourly /
+Daily-at-09:00 presets) fields; the validation-error rendering (title +
+instruction required messages, the future-time runAt error, the cron-parser
+constraint errors, and the `aria-invalid` field marking) without calling
+`onCreate`/`onClose`; the submit happy path for both once and cron shapes
+(title trimming, the scheduleType/runAt/cron field wiring, and the
+close-on-success) via both the Create-button click and the form `onSubmit`;
+and the title/instruction field binding + the `TITLE_MAX`/`INSTRUCTION_MAX`
+`maxLength` caps).
 
 The `/api/chat` route drives the hand-rolled tool loop directly over
 OpenRouter's function-calling API. By default (`TOOL_EXPOSURE_MODE=search`)
