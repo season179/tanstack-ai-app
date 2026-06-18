@@ -336,7 +336,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
             </div>
           ) : null}
 
-          <div className="relative flex items-end gap-2 rounded-2xl border border-border bg-card p-2 shadow-sm focus-within:ring-2 focus-within:ring-primary/30">
+          <div className="relative flex items-end gap-2 rounded-xl border border-border/80 bg-card/95 p-2 shadow-[var(--shadow-pop)] transition-shadow focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/10">
             <textarea
               aria-label="Message"
               className="max-h-48 min-h-6 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
@@ -401,7 +401,7 @@ export function ChatSurface({ sessionId }: { sessionId: string }) {
                   type="button"
                   variant="outline"
                 >
-                  <Square className="size-4" />
+                  <Square className="size-4 fill-current" />
                 </Button>
               ) : (
                 <Button
