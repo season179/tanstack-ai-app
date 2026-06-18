@@ -51,7 +51,13 @@ pnpm build
 `pnpm test` runs the Vitest suite over the pure domain logic that carries the
 most risk if silently regressed: the chat-message reconciliation helpers, the
 skill `/skill-name` parsers, validation rules, and activation wire-format
-(`<skill_content>` XML block builder + escape semantics), the server-side skill
+(`<skill_content>` XML block builder + escape semantics), the Skills page
+editor's pure draft helpers extracted into `skill-draft`
+(`draftFromSkill`'s Skill→draft conversion reusing the persisted id as the
+list key, `validateDraft`'s per-field `.trim()`-then-validate aggregation
+across the top-level name/description/body fields plus the per-reference
+errors keyed by draft key with clean-reference omission, and
+`hasDraftErrors`'s any-error detector driving the editor's submit guard), the server-side skill
 tools (`skill_search` / `skill_get_content` dispatch, the tier-1 catalog block,
 token-overlap ranking with exact-name weighting, and the tier-2/tier-3 content
 formatting), the scheduler's cron projection (`canFire` / `projectNextFire`) and

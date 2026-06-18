@@ -8,15 +8,20 @@ import { Markdown } from "~/components/ui/markdown";
 import { useHydrated } from "~/lib/hooks/use-hydrated";
 import { type Skill, useSkills } from "~/lib/hooks/use-skills";
 import {
+  type DraftErrors,
+  draftFromSkill,
+  EMPTY_DRAFT,
+  hasDraftErrors,
+  type ReferenceDraft,
+  type SkillDraft,
+  validateDraft,
+} from "~/lib/skills/skill-draft";
+import {
   countLines,
   DESCRIPTION_MAX,
   NAME_MAX,
   SKILL_BODY_MAX_CHARS,
   SKILL_BODY_MAX_LINES,
-  validateDescription,
-  validateName,
-  validateReferenceBody,
-  validateSkillBody,
 } from "~/lib/skills/validation";
 import { cn } from "~/lib/utils";
 
@@ -24,92 +29,11 @@ export const Route = createFileRoute("/skills")({
   component: SkillsRoute,
 });
 
-type ReferenceDraft = {
-  /** Stable key for React lists; not sent to the store. */
-  key: string;
-  /** Set when editing an existing reference. */
-  id?: string;
-  name: string;
-  description: string;
-  body: string;
-};
-
-type SkillDraft = {
-  name: string;
-  description: string;
-  body: string;
-  references: ReferenceDraft[];
-};
-
-const EMPTY_DRAFT: SkillDraft = {
-  name: "",
-  description: "",
-  body: "",
-  references: [],
-};
-
 let draftKeyCounter = 0;
 
 function nextDraftKey() {
   draftKeyCounter += 1;
   return `draft-${draftKeyCounter}`;
-}
-
-function draftFromSkill(skill: Skill): SkillDraft {
-  return {
-    name: skill.name,
-    description: skill.description,
-    body: skill.body,
-    references: skill.references.map((reference) => ({
-      key: reference.id,
-      id: reference.id,
-      name: reference.name,
-      description: reference.description,
-      body: reference.body,
-    })),
-  };
-}
-
-type ReferenceErrors = {
-  name?: string;
-  description?: string;
-  body?: string;
-};
-
-type DraftErrors = {
-  name?: string;
-  description?: string;
-  body?: string;
-  references: Record<string, ReferenceErrors>;
-};
-
-function validateDraft(draft: SkillDraft): DraftErrors {
-  const references: Record<string, ReferenceErrors> = {};
-
-  for (const reference of draft.references) {
-    const errors: ReferenceErrors = {
-      name: validateName(reference.name.trim()) ?? undefined,
-      description: validateDescription(reference.description.trim()) ?? undefined,
-      body: validateReferenceBody(reference.body.trim()) ?? undefined,
-    };
-
-    if (errors.name || errors.description || errors.body) {
-      references[reference.key] = errors;
-    }
-  }
-
-  return {
-    name: validateName(draft.name.trim()) ?? undefined,
-    description: validateDescription(draft.description.trim()) ?? undefined,
-    body: validateSkillBody(draft.body.trim()) ?? undefined,
-    references,
-  };
-}
-
-function hasDraftErrors(errors: DraftErrors) {
-  return Boolean(
-    errors.name || errors.description || errors.body || Object.keys(errors.references).length > 0,
-  );
 }
 
 function SkillsRoute() {
